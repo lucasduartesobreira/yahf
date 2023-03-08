@@ -17,18 +17,18 @@ type GenericHttpRequest = HttpRequest<String>;
 
 type BoxedHandler = Box<dyn Fn(GenericHttpRequest) -> HttpResult<String>>;
 
-pub trait Runner<Req, Res> {
+pub trait Runner<Req, Res, Input, Output> {
     fn create_run(self) -> BoxedHandler;
 }
 
-impl<Req, Res, T> Runner<Req, Res> for T
+impl<Req, Res, T> Runner<Req, Res, (HttpRequest<Req>, HttpResponse<Res>), HttpResult<Res>> for T
 where
     Req: DeserializeOwned,
     Res: Serialize,
     T: Fn(HttpRequest<Req>, HttpResponse<Res>) -> Result<HttpResponse<Res>, String> + 'static,
 {
     fn create_run<'a>(self) -> BoxedHandler {
-        let handler = move |request: GenericHttpRequest| -> Result<HttpResponse<String>, String> {
+        let handler = move |request: GenericHttpRequest| -> GenericHttpResponse {
             let req_deserialized = serde_json::from_str(&request.body);
             let http_resp_a = HttpResponse { body: None };
 
@@ -68,9 +68,9 @@ impl Server {
         }
     }
 
-    pub fn add_handler<Req, Res, R>(&mut self, path: &'static str, handler: R)
+    pub fn add_handler<Req, Res, Input, Output, R>(&mut self, path: &'static str, handler: R)
     where
-        R: 'static + Runner<Req, Res>,
+        R: 'static + Runner<Req, Res, Input, Output>,
     {
         self.routes.insert(path, handler.create_run());
     }
