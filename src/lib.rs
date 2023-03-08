@@ -15,7 +15,7 @@ pub struct HttpResponse<ResBody> {
 type HttpResult<T> = Result<HttpResponse<T>, String>;
 type GenericHttpRequest = HttpRequest<String>;
 
-type BoxedHandler = Box<dyn FnMut(GenericHttpRequest) -> HttpResult<String>>;
+type BoxedHandler = Box<dyn Fn(GenericHttpRequest) -> HttpResult<String>>;
 
 pub trait Runner<Req, Res> {
     fn create_run(self) -> BoxedHandler;
@@ -25,10 +25,10 @@ impl<Req, Res, T> Runner<Req, Res> for T
 where
     Req: DeserializeOwned,
     Res: Serialize,
-    T: FnMut(HttpRequest<Req>, HttpResponse<Res>) -> Result<HttpResponse<Res>, String> + 'static,
+    T: Fn(HttpRequest<Req>, HttpResponse<Res>) -> Result<HttpResponse<Res>, String> + 'static,
 {
-    fn create_run<'a>(mut self) -> BoxedHandler {
-        Box::new(move |request| -> Result<HttpResponse<String>, String> {
+    fn create_run<'a>(self) -> BoxedHandler {
+        let handler = move |request: GenericHttpRequest| -> Result<HttpResponse<String>, String> {
             let req_deserialized = serde_json::from_str(&request.body);
             let http_resp_a = HttpResponse { body: None };
 
@@ -51,7 +51,9 @@ where
                 }
                 Err(err) => Err(err.to_string()),
             }
-        })
+        };
+
+        Box::new(handler)
     }
 }
 
@@ -109,7 +111,7 @@ mod tests {
 
         assert_eq!(server.routes.len(), 1);
 
-        let handler = server.routes.get_mut("/").unwrap();
+        let handler = server.routes.get("/").unwrap();
 
         let request = HttpRequest {
             body: serde_json::json!({
