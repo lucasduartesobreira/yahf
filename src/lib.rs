@@ -12,10 +12,24 @@ pub struct HttpResponse<ResBody> {
     body: Option<ResBody>,
 }
 
-type HttpResult<T> = Result<HttpResponse<T>, String>;
-type GenericHttpRequest = HttpRequest<String>;
+#[derive(Debug)]
+pub struct HttpError {
+    _code: u32,
+    _body: String,
+}
 
-type BoxedHandler = Box<dyn Fn(GenericHttpRequest) -> HttpResult<String>>;
+#[derive(Debug)]
+pub enum Error {
+    ParseBody(String),
+    RequestError(HttpError),
+}
+
+type HttpResult<T> = Result<HttpResponse<T>, HttpError>;
+type InternalResult<T> = Result<T, Error>;
+type GenericHttpRequest = HttpRequest<String>;
+type GenericHttpResponse = InternalResult<HttpResponse<String>>;
+
+type BoxedHandler = Box<dyn Fn(GenericHttpRequest) -> GenericHttpResponse>;
 
 pub trait Runner<Req, Res, Input, Output> {
     fn create_run(self) -> BoxedHandler;
@@ -25,7 +39,7 @@ impl<Req, Res, T> Runner<Req, Res, (HttpRequest<Req>, HttpResponse<Res>), HttpRe
 where
     Req: DeserializeOwned,
     Res: Serialize,
-    T: Fn(HttpRequest<Req>, HttpResponse<Res>) -> Result<HttpResponse<Res>, String> + 'static,
+    T: Fn(HttpRequest<Req>, HttpResponse<Res>) -> Result<HttpResponse<Res>, HttpError> + 'static,
 {
     fn create_run<'a>(self) -> BoxedHandler {
         let handler = move |request: GenericHttpRequest| -> GenericHttpResponse {
@@ -43,13 +57,13 @@ where
                                 Ok(response_bd) => Ok(HttpResponse {
                                     body: Some(response_bd),
                                 }),
-                                Err(err) => Err(err.to_string()),
+                                Err(err) => Err(Error::ParseBody(err.to_string())),
                             }
                         }
-                        Err(err) => Err(err),
+                        Err(err) => Err(Error::RequestError(err)),
                     }
                 }
-                Err(err) => Err(err.to_string()),
+                Err(err) => Err(Error::ParseBody(err.to_string())),
             }
         };
 
@@ -125,7 +139,10 @@ mod tests {
         assert!(
             response.is_ok(),
             "Mensagem de erro: {}",
-            response.err().unwrap()
+            match response.err().unwrap() {
+                crate::Error::ParseBody(message) => message,
+                crate::Error::RequestError(error) => error._body,
+            }
         );
 
         assert_eq!(
