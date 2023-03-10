@@ -24,7 +24,8 @@ pub enum Error {
     RequestError(HttpError),
 }
 
-type HttpResult<T> = Result<HttpResponse<T>, HttpError>;
+type HandlerResult<T> = Result<T, HttpError>;
+type HttpResult<T> = HandlerResult<HttpResponse<T>>;
 type InternalResult<T> = Result<T, Error>;
 type GenericHttpRequest = HttpRequest<String>;
 type GenericHttpResponse = InternalResult<HttpResponse<String>>;
@@ -39,7 +40,7 @@ impl<Req, Res, T> Runner<Req, Res, (HttpRequest<Req>, HttpResponse<Res>), HttpRe
 where
     Req: DeserializeOwned,
     Res: Serialize,
-    T: Fn(HttpRequest<Req>, HttpResponse<Res>) -> Result<HttpResponse<Res>, HttpError> + 'static,
+    T: Fn(HttpRequest<Req>, HttpResponse<Res>) -> HandlerResult<HttpResponse<Res>> + 'static,
 {
     fn create_run<'a>(self) -> BoxedHandler {
         let handler = move |request: GenericHttpRequest| -> GenericHttpResponse {
