@@ -1,7 +1,7 @@
 use http::{Request, Response};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::io::{Error, HttpError};
+use crate::error::{Error, HttpError};
 
 type HandlerResult<T> = Result<T, HttpError>;
 pub type HttpResult<T> = HandlerResult<Response<T>>;

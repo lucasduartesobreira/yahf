@@ -1,6 +1,6 @@
+mod error;
 mod handle_selector;
 mod handler;
-mod io;
 
 use handle_selector::HandlerSelect;
 use handler::Runner;
@@ -31,7 +31,7 @@ mod tests {
     use http::{Request, Response};
     use serde::{Deserialize, Serialize};
 
-    use crate::{handler::HttpResult, io::Error, Server};
+    use crate::{error::Error, handler::HttpResult, Server};
 
     #[derive(Debug, Deserialize, Serialize)]
     struct TestStruct {
