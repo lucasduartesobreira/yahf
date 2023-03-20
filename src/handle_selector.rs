@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{BoxedHandler, GenericHandlerClosure};
+use crate::handler::{BoxedHandler, GenericHandlerClosure};
 
 #[derive(Default)]
 struct Node<'a> {
