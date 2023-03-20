@@ -1,5 +1,6 @@
-use std::collections::HashMap;
+mod handle_selector;
 
+use handle_selector::HandlerSelect;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -30,11 +31,14 @@ type InternalResult<T> = Result<T, Error>;
 type GenericHttpRequest = HttpRequest<String>;
 type GenericHttpResponse = InternalResult<HttpResponse<String>>;
 
-type BoxedHandler = Box<dyn Fn(GenericHttpRequest) -> GenericHttpResponse>;
+pub trait GenericHandlerClosure: Fn(GenericHttpRequest) -> GenericHttpResponse {}
+type BoxedHandler = Box<dyn GenericHandlerClosure>;
 
 pub trait Runner<Req, Res, Input, Output> {
     fn create_run(self) -> BoxedHandler;
 }
+
+impl<F> GenericHandlerClosure for F where F: Fn(GenericHttpRequest) -> GenericHttpResponse {}
 
 impl<Req, Res, T> Runner<Req, Res, (HttpRequest<Req>, HttpResponse<Res>), HttpResult<Res>> for T
 where
@@ -134,14 +138,15 @@ where
     }
 }
 
-pub struct Server {
-    routes: HashMap<&'static str, BoxedHandler>,
+#[derive(Default)]
+pub struct Server<'a> {
+    handler_selector: HandlerSelect<'a>,
 }
 
-impl Server {
+impl<'a> Server<'a> {
     pub fn new() -> Self {
         Self {
-            routes: HashMap::new(),
+            handler_selector: HandlerSelect::new(),
         }
     }
 
@@ -149,13 +154,7 @@ impl Server {
     where
         R: 'static + Runner<Req, Res, Input, Output>,
     {
-        self.routes.insert(path, handler.create_run());
-    }
-}
-
-impl Default for Server {
-    fn default() -> Self {
-        Self::new()
+        self.handler_selector.insert(path, handler.create_run());
     }
 }
 
@@ -184,11 +183,13 @@ mod tests {
     fn test_handler_receiving_req_and_res() {
         let mut server = Server::new();
 
-        server.add_handler("/", test_handler_with_req_and_res);
+        server.add_handler("aaaa/bbbb", test_handler_with_req_and_res);
 
-        assert_eq!(server.routes.len(), 1);
+        let handler = server.handler_selector.get("aaaa/bbbb");
 
-        let handler = server.routes.get("/").unwrap();
+        assert!(handler.is_some());
+
+        let unwraped_handler = handler.unwrap();
 
         let request = HttpRequest {
             body: serde_json::json!({
@@ -197,7 +198,7 @@ mod tests {
             .to_string(),
         };
 
-        let response = handler(request);
+        let response = unwraped_handler(request);
 
         assert!(
             response.is_ok(),
