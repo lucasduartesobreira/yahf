@@ -28,27 +28,18 @@ impl<'a> Server<'a> {
 #[cfg(test)]
 mod tests {
 
-    use http::Request;
+    use http::{Request, Response};
     use serde::{Deserialize, Serialize};
 
-    use crate::{
-        handler::HttpResult,
-        io::{Error, HttpResponse},
-        Server,
-    };
+    use crate::{handler::HttpResult, io::Error, Server};
 
     #[derive(Debug, Deserialize, Serialize)]
     struct TestStruct {
         correct: bool,
     }
 
-    fn test_handler_with_req_and_res(
-        _req: Request<TestStruct>,
-        _res: HttpResponse<TestStruct>,
-    ) -> HttpResult<TestStruct> {
-        Ok(HttpResponse {
-            body: Some(TestStruct { correct: true }),
-        })
+    fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> HttpResult<TestStruct> {
+        Ok(Response::new(TestStruct { correct: true }))
     }
 
     #[test]
@@ -79,7 +70,7 @@ mod tests {
         );
 
         assert_eq!(
-            response.unwrap().body.unwrap(),
+            *response.unwrap().body(),
             serde_json::json!({ "correct": true }).to_string()
         );
     }

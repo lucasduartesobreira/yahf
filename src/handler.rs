@@ -1,13 +1,13 @@
-use http::Request;
+use http::{Request, Response};
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::io::{Error, HttpError, HttpResponse};
+use crate::io::{Error, HttpError};
 
 type HandlerResult<T> = Result<T, HttpError>;
-pub type HttpResult<T> = HandlerResult<HttpResponse<T>>;
+pub type HttpResult<T> = HandlerResult<Response<T>>;
 type InternalResult<T> = Result<T, Error>;
 type GenericHttpRequest = Request<String>;
-type GenericHttpResponse = InternalResult<HttpResponse<String>>;
+type GenericHttpResponse = InternalResult<Response<String>>;
 
 pub trait GenericHandlerClosure: Fn(GenericHttpRequest) -> GenericHttpResponse {}
 pub type BoxedHandler = Box<dyn GenericHandlerClosure>;
@@ -18,29 +18,27 @@ pub trait Runner<Req, Res, Input, Output> {
 
 impl<F> GenericHandlerClosure for F where F: Fn(GenericHttpRequest) -> GenericHttpResponse {}
 
-impl<Req, Res, T> Runner<Req, Res, (Request<Req>, HttpResponse<Res>), HttpResult<Res>> for T
+impl<Req, Res, T> Runner<Req, Res, (Request<Req>, Response<Res>), HttpResult<Res>> for T
 where
     Req: DeserializeOwned,
     Res: Serialize,
-    T: Fn(Request<Req>, HttpResponse<Res>) -> HandlerResult<HttpResponse<Res>> + 'static,
+    T: Fn(Request<Req>) -> HandlerResult<Response<Res>> + 'static,
 {
     fn create_run<'a>(self) -> BoxedHandler {
         let handler = move |request: GenericHttpRequest| -> GenericHttpResponse {
             let (parts, body) = request.into_parts();
             let req_deserialized = serde_json::from_str(&body);
-            let http_resp_a = HttpResponse { body: None };
 
             match req_deserialized {
                 Ok(body) => {
-                    let response = self(Request::from_parts(parts, body), http_resp_a);
+                    let response = self(Request::from_parts(parts, body));
                     match response {
                         Ok(http_response) => {
-                            let serialized_resp_body = serde_json::to_string(&http_response.body);
+                            let (parts, body) = http_response.into_parts();
+                            let serialized_resp_body = serde_json::to_string(&body);
 
                             match serialized_resp_body {
-                                Ok(response_bd) => Ok(HttpResponse {
-                                    body: Some(response_bd),
-                                }),
+                                Ok(response_bd) => Ok(Response::from_parts(parts, response_bd)),
                                 Err(err) => Err(Error::ParseBody(err.to_string())),
                             }
                         }
@@ -68,9 +66,7 @@ where
                     let serialized_resp_body = serde_json::to_string(&http_response);
 
                     match serialized_resp_body {
-                        Ok(response_bd) => Ok(HttpResponse {
-                            body: Some(response_bd),
-                        }),
+                        Ok(response_bd) => Ok(Response::new(response_bd)),
                         Err(err) => Err(Error::ParseBody(err.to_string())),
                     }
                 }
@@ -101,9 +97,7 @@ where
                             let serialized_resp_body = serde_json::to_string(&http_response);
 
                             match serialized_resp_body {
-                                Ok(response_bd) => Ok(HttpResponse {
-                                    body: Some(response_bd),
-                                }),
+                                Ok(response_bd) => Ok(Response::new(response_bd)),
                                 Err(err) => Err(Error::ParseBody(err.to_string())),
                             }
                         }
