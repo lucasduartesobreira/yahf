@@ -28,11 +28,12 @@ impl<'a> Server<'a> {
 #[cfg(test)]
 mod tests {
 
+    use http::Request;
     use serde::{Deserialize, Serialize};
 
     use crate::{
         handler::HttpResult,
-        io::{Error, HttpRequest, HttpResponse},
+        io::{Error, HttpResponse},
         Server,
     };
 
@@ -42,7 +43,7 @@ mod tests {
     }
 
     fn test_handler_with_req_and_res(
-        _req: HttpRequest<TestStruct>,
+        _req: Request<TestStruct>,
         _res: HttpResponse<TestStruct>,
     ) -> HttpResult<TestStruct> {
         Ok(HttpResponse {
@@ -62,12 +63,9 @@ mod tests {
 
         let unwraped_handler = handler.unwrap();
 
-        let request = HttpRequest {
-            body: serde_json::json!({
-                "correct": false
-            })
-            .to_string(),
-        };
+        let request = Request::builder()
+            .body(serde_json::json!({ "correct": false }).to_string())
+            .unwrap();
 
         let response = unwraped_handler(request);
 

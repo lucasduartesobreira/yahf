@@ -1,11 +1,12 @@
+use http::Request;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::io::{Error, HttpError, HttpRequest, HttpResponse};
+use crate::io::{Error, HttpError, HttpResponse};
 
 type HandlerResult<T> = Result<T, HttpError>;
 pub type HttpResult<T> = HandlerResult<HttpResponse<T>>;
 type InternalResult<T> = Result<T, Error>;
-type GenericHttpRequest = HttpRequest<String>;
+type GenericHttpRequest = Request<String>;
 type GenericHttpResponse = InternalResult<HttpResponse<String>>;
 
 pub trait GenericHandlerClosure: Fn(GenericHttpRequest) -> GenericHttpResponse {}
@@ -17,20 +18,21 @@ pub trait Runner<Req, Res, Input, Output> {
 
 impl<F> GenericHandlerClosure for F where F: Fn(GenericHttpRequest) -> GenericHttpResponse {}
 
-impl<Req, Res, T> Runner<Req, Res, (HttpRequest<Req>, HttpResponse<Res>), HttpResult<Res>> for T
+impl<Req, Res, T> Runner<Req, Res, (Request<Req>, HttpResponse<Res>), HttpResult<Res>> for T
 where
     Req: DeserializeOwned,
     Res: Serialize,
-    T: Fn(HttpRequest<Req>, HttpResponse<Res>) -> HandlerResult<HttpResponse<Res>> + 'static,
+    T: Fn(Request<Req>, HttpResponse<Res>) -> HandlerResult<HttpResponse<Res>> + 'static,
 {
     fn create_run<'a>(self) -> BoxedHandler {
         let handler = move |request: GenericHttpRequest| -> GenericHttpResponse {
-            let req_deserialized = serde_json::from_str(&request.body);
+            let (parts, body) = request.into_parts();
+            let req_deserialized = serde_json::from_str(&body);
             let http_resp_a = HttpResponse { body: None };
 
             match req_deserialized {
                 Ok(body) => {
-                    let response = self(HttpRequest { body }, http_resp_a);
+                    let response = self(Request::from_parts(parts, body), http_resp_a);
                     match response {
                         Ok(http_response) => {
                             let serialized_resp_body = serde_json::to_string(&http_response.body);
@@ -88,7 +90,8 @@ where
 {
     fn create_run<'a>(self) -> BoxedHandler {
         let handler = move |request: GenericHttpRequest| -> GenericHttpResponse {
-            let req_deserialized = serde_json::from_str(&request.body);
+            let (_, body) = request.into_parts();
+            let req_deserialized = serde_json::from_str(&body);
 
             match req_deserialized {
                 Ok(body) => {

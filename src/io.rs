@@ -1,9 +1,7 @@
+use http::{Request, Response};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct HttpRequest<ReqBody> {
-    pub body: ReqBody,
-}
+type HResponse<T> = Response<T>;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct HttpResponse<ResBody> {
