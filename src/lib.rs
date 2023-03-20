@@ -1,29 +1,9 @@
 mod handle_selector;
+mod io;
 
 use handle_selector::HandlerSelect;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct HttpRequest<ReqBody> {
-    body: ReqBody,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct HttpResponse<ResBody> {
-    body: Option<ResBody>,
-}
-
-#[derive(Debug)]
-pub struct HttpError {
-    _code: u32,
-    _body: String,
-}
-
-#[derive(Debug)]
-pub enum Error {
-    ParseBody(String),
-    RequestError(HttpError),
-}
+use io::{Error, HttpError, HttpRequest, HttpResponse};
+use serde::{de::DeserializeOwned, Serialize};
 
 type HandlerResult<T> = Result<T, HttpError>;
 type HttpResult<T> = HandlerResult<HttpResponse<T>>;
