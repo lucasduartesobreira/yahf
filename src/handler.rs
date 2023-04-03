@@ -1,5 +1,7 @@
 use std::marker::PhantomData;
 
+use async_trait::async_trait;
+use futures::{future::BoxFuture, Future};
 use http::{Request, Response};
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -16,6 +18,146 @@ pub type BoxedHandler = Box<dyn GenericHandlerClosure>;
 
 pub trait Runner<Req, Res, Input, Output> {
     fn create_run(self) -> BoxedHandler;
+}
+
+type LocalGenericHttpRequest = RequestWrapper<String>;
+
+#[async_trait]
+pub trait RealRunner<Input, Output>: Clone + Sync + Send {
+    async fn run(&self, req: LocalGenericHttpRequest) -> GenericHttpResponse;
+}
+
+pub trait CRunner<Args> {
+    fn create_runner<'a, 'b>(
+        &'static self,
+    ) -> Box<dyn 'a + Fn(LocalGenericHttpRequest) -> BoxFuture<'b, GenericHttpResponse>>
+    where
+        'a: 'b,
+        'a: 'static;
+}
+
+#[async_trait]
+impl<Req, Res, FFut, F> RealRunner<Req, Res> for F
+where
+    F: Fn(Req) -> FFut + Clone + Sync + Send,
+    FFut: Future<Output = Res> + Send,
+    Req: From<LocalGenericHttpRequest> + Send,
+    Res: Into<GenericHttpResponse>,
+{
+    async fn run(&self, req: LocalGenericHttpRequest) -> GenericHttpResponse {
+        self(Req::from(req)).await.into()
+    }
+}
+
+impl<Req, Res, F> CRunner<(Req, Res)> for F
+where
+    F: RealRunner<Req, Res>,
+{
+    fn create_runner<'a, 'b>(
+        &'static self,
+    ) -> Box<dyn 'a + Fn(LocalGenericHttpRequest) -> BoxFuture<'b, GenericHttpResponse>>
+    where
+        'a: 'b,
+        'a: 'static,
+    {
+        Box::new(move |req: LocalGenericHttpRequest| Box::pin(async { self.run(req).await }))
+    }
+}
+
+pub struct RequestWrapper<Body> {
+    request: Request<Body>,
+}
+
+trait BodyExtractors {
+    type Item: DeserializeOwned;
+    fn extracted(self) -> Self::Item;
+
+    fn extract(content: String) -> Result<Self, String>
+    where
+        Self: Sized;
+}
+
+#[derive(Clone)]
+pub struct Json<T>(T);
+
+impl<T> BodyExtractors for Json<T>
+where
+    T: DeserializeOwned,
+{
+    type Item = T;
+    fn extracted(self) -> T {
+        self.0
+    }
+
+    fn extract(content: String) -> Result<Self, String> {
+        let deserialized = serde_json::from_str(content.as_str());
+        deserialized
+            .map(|des| Json(des))
+            .map_err(|err| err.to_string())
+    }
+}
+
+impl From<LocalGenericHttpRequest> for Request<String> {
+    fn from(value: LocalGenericHttpRequest) -> Self {
+        value.request
+    }
+}
+
+impl<Ext, Body> From<RequestWrapper<String>> for Request<Ext>
+where
+    Ext: BodyExtractors<Item = Body>,
+    Body: DeserializeOwned,
+{
+    fn from(value: RequestWrapper<String>) -> Self {
+        let (parts, body) = value.request.into_parts();
+        let des_body = Ext::extract(body);
+        Request::from_parts(parts, des_body.unwrap())
+    }
+}
+
+impl<Body> From<RequestWrapper<String>> for Json<Body>
+where
+    Body: DeserializeOwned,
+{
+    fn from(value: RequestWrapper<String>) -> Self {
+        let body = value.request.into_body();
+        let des_body = Self::extract(body);
+        des_body.unwrap()
+    }
+}
+
+#[cfg(test)]
+mod testttt {
+    use std::collections::HashMap;
+
+    use http::Request;
+    use serde::Deserialize;
+
+    use super::{CRunner, GenericHttpResponse, Json, RequestWrapper};
+
+    #[derive(Deserialize)]
+    struct Slaa {
+        _correct: bool,
+    }
+
+    async fn real_runner(_req: Request<String>) -> GenericHttpResponse {
+        todo!()
+    }
+
+    async fn rr2(_req: Json<Slaa>) -> GenericHttpResponse {
+        todo!()
+    }
+
+    #[test]
+    fn test_aha() {
+        let _a: Request<_> = Request::<Json<Slaa>>::from(RequestWrapper {
+            request: Request::new("{\"correct\":true}".to_string()),
+        });
+
+        let mut map = HashMap::new();
+        map.insert("a", rr2.create_runner());
+        map.insert("b", real_runner.create_runner());
+    }
 }
 
 impl<F> GenericHandlerClosure for F where F: Fn(GenericHttpRequest) -> GenericHttpResponse {}
@@ -125,6 +267,7 @@ where
     _pdt: PhantomData<(Req, Res, Signature)>,
 }
 
+#[allow(dead_code)]
 impl<Req, Res, F> Handler<Req, Res, (Req, Res), F>
 where
     Req: DeserializeOwned,
