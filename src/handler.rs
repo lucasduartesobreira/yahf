@@ -41,7 +41,7 @@ impl<BodyType, Extractor, Req, Res, FFut, F> RealRunner<Req, Res, Extractor, Bod
 where
     F: Fn(Req) -> FFut + Clone + Sync + Send,
     FFut: Future<Output = Res> + Send,
-    Req: FromWithExtractor<Extractor, BodyType, Req> + Send,
+    Req: TryFromWithExtractor<Extractor, BodyType, Req> + Send,
     Res: Into<GenericHttpResponse>,
 {
     async fn run(&self, req: LocalGenericHttpRequest) -> GenericHttpResponse {
@@ -94,11 +94,11 @@ impl From<LocalGenericHttpRequest> for Request<String> {
     }
 }
 
-trait FromWithExtractor<WithExtractor, BodyType, OutputType> {
+trait TryFromWithExtractor<WithExtractor, BodyType, OutputType> {
     fn from(value: LocalGenericHttpRequest) -> Result<OutputType, error::Error>;
 }
 
-impl<Req, Extractor> FromWithExtractor<Extractor, Req, Req> for Req
+impl<Req, Extractor> TryFromWithExtractor<Extractor, Req, Req> for Req
 where
     Extractor: BodyExtractors<Item = Req>,
     Req: DeserializeOwned,
@@ -109,7 +109,7 @@ where
     }
 }
 
-impl<Req, Extractor> FromWithExtractor<Extractor, Req, Request<Req>> for Request<Req>
+impl<Req, Extractor> TryFromWithExtractor<Extractor, Req, Request<Req>> for Request<Req>
 where
     Extractor: BodyExtractors<Item = Req>,
     Req: DeserializeOwned,
