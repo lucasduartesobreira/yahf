@@ -29,7 +29,8 @@ pub trait RealRunner<Input, Output, Extractor, BodyType>: Clone + Sync + Send {
 
 pub trait CRunner<Input, Output, Extractor, BodyType> {
     fn create_runner<'a, 'b>(
-        &'static self,
+        &'a self,
+        _extractor: Extractor,
     ) -> Box<dyn 'a + Fn(LocalGenericHttpRequest) -> BoxFuture<'b, GenericHttpResponse>>
     where
         'a: 'b,
@@ -51,10 +52,12 @@ where
 
 impl<Req, Res, BodyType, Extractor, F> CRunner<Req, Res, Extractor, BodyType> for F
 where
-    F: RealRunner<Req, Res, Extractor, BodyType>,
+    F: RealRunner<Req, Res, Extractor, BodyType> + 'static,
 {
+    #[allow(unused_variables)]
     fn create_runner<'a, 'b>(
-        &'static self,
+        &'a self,
+        extractor: Extractor,
     ) -> Box<dyn 'a + Fn(LocalGenericHttpRequest) -> BoxFuture<'b, GenericHttpResponse>>
     where
         'a: 'b,
@@ -73,8 +76,8 @@ trait BodyExtractors {
     fn extract(content: String) -> Result<Self::Item, String>;
 }
 
-#[derive(Clone)]
-pub struct Json<T>(T);
+#[derive(Clone, Default)]
+pub struct Json<T>(PhantomData<T>);
 
 impl<T> BodyExtractors for Json<T>
 where
