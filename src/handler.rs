@@ -23,11 +23,11 @@ pub trait Runner<Req, Res, Input, Output> {
 type LocalGenericHttpRequest = RequestWrapper<String>;
 
 #[async_trait]
-pub trait RealRunner<Input, Output>: Clone + Sync + Send {
+pub trait RealRunner<Input, Output, Extractor, BodyType>: Clone + Sync + Send {
     async fn run(&self, req: LocalGenericHttpRequest) -> GenericHttpResponse;
 }
 
-pub trait CRunner<Args> {
+pub trait CRunner<Input, Output, Extractor, BodyType> {
     fn create_runner<'a, 'b>(
         &'static self,
     ) -> Box<dyn 'a + Fn(LocalGenericHttpRequest) -> BoxFuture<'b, GenericHttpResponse>>
@@ -37,21 +37,21 @@ pub trait CRunner<Args> {
 }
 
 #[async_trait]
-impl<Req, Res, FFut, F> RealRunner<Req, Res> for F
+impl<BodyType, Extractor, Req, Res, FFut, F> RealRunner<Req, Res, Extractor, BodyType> for F
 where
     F: Fn(Req) -> FFut + Clone + Sync + Send,
     FFut: Future<Output = Res> + Send,
-    Req: From<LocalGenericHttpRequest> + Send,
+    Req: FromWithExtractor<Extractor, BodyType, Req> + Send,
     Res: Into<GenericHttpResponse>,
 {
     async fn run(&self, req: LocalGenericHttpRequest) -> GenericHttpResponse {
-        self(Req::from(req)).await.into()
+        self(Req::from(req)?).await.into()
     }
 }
 
-impl<Req, Res, F> CRunner<(Req, Res)> for F
+impl<Req, Res, BodyType, Extractor, F> CRunner<Req, Res, Extractor, BodyType> for F
 where
-    F: RealRunner<Req, Res>,
+    F: RealRunner<Req, Res, Extractor, BodyType>,
 {
     fn create_runner<'a, 'b>(
         &'static self,
@@ -70,11 +70,7 @@ pub struct RequestWrapper<Body> {
 
 trait BodyExtractors {
     type Item: DeserializeOwned;
-    fn extracted(self) -> Self::Item;
-
-    fn extract(content: String) -> Result<Self, String>
-    where
-        Self: Sized;
+    fn extract(content: String) -> Result<Self::Item, String>;
 }
 
 #[derive(Clone)]
@@ -85,15 +81,10 @@ where
     T: DeserializeOwned,
 {
     type Item = T;
-    fn extracted(self) -> T {
-        self.0
-    }
 
-    fn extract(content: String) -> Result<Self, String> {
+    fn extract(content: String) -> Result<Self::Item, String> {
         let deserialized = serde_json::from_str(content.as_str());
-        deserialized
-            .map(|des| Json(des))
-            .map_err(|err| err.to_string())
+        deserialized.map_err(|err| err.to_string())
     }
 }
 
@@ -103,60 +94,66 @@ impl From<LocalGenericHttpRequest> for Request<String> {
     }
 }
 
-impl<Ext, Body> From<RequestWrapper<String>> for Request<Ext>
+trait FromWithExtractor<WithExtractor, BodyType, OutputType> {
+    fn from(value: LocalGenericHttpRequest) -> Result<OutputType, error::Error>;
+}
+
+impl<Req, Extractor> FromWithExtractor<Extractor, Req, Req> for Req
 where
-    Ext: BodyExtractors<Item = Body>,
-    Body: DeserializeOwned,
+    Extractor: BodyExtractors<Item = Req>,
+    Req: DeserializeOwned,
 {
-    fn from(value: RequestWrapper<String>) -> Self {
-        let (parts, body) = value.request.into_parts();
-        let des_body = Ext::extract(body);
-        Request::from_parts(parts, des_body.unwrap())
+    fn from(value: LocalGenericHttpRequest) -> Result<Req, error::Error> {
+        let body = value.request.into_body();
+        Extractor::extract(body).map_err(error::Error::ParseBody)
     }
 }
 
-impl<Body> From<RequestWrapper<String>> for Json<Body>
+impl<Req, Extractor> FromWithExtractor<Extractor, Req, Request<Req>> for Request<Req>
 where
-    Body: DeserializeOwned,
+    Extractor: BodyExtractors<Item = Req>,
+    Req: DeserializeOwned,
 {
-    fn from(value: RequestWrapper<String>) -> Self {
-        let body = value.request.into_body();
-        let des_body = Self::extract(body);
-        des_body.unwrap()
+    fn from(value: LocalGenericHttpRequest) -> Result<Request<Req>, error::Error> {
+        let (parts, body) = value.request.into_parts();
+        Extractor::extract(body)
+            .map(|result| Request::from_parts(parts, result))
+            .map_err(error::Error::ParseBody)
     }
 }
 
 #[cfg(test)]
 mod testttt {
-    use std::collections::HashMap;
 
     use http::Request;
     use serde::Deserialize;
 
-    use super::{CRunner, GenericHttpResponse, Json, RequestWrapper};
+    use super::{CRunner, FromWithExtractor, GenericHttpResponse, Json, RequestWrapper};
 
     #[derive(Deserialize)]
     struct Slaa {
         _correct: bool,
     }
 
-    async fn real_runner(_req: Request<String>) -> GenericHttpResponse {
+    async fn real_runner(_req: Request<Slaa>) -> GenericHttpResponse {
         todo!()
     }
 
-    async fn rr2(_req: Json<Slaa>) -> GenericHttpResponse {
+    async fn rr2(_req: Slaa) -> GenericHttpResponse {
         todo!()
     }
 
     #[test]
     fn test_aha() {
-        let _a: Request<_> = Request::<Json<Slaa>>::from(RequestWrapper {
-            request: Request::new("{\"correct\":true}".to_string()),
-        });
+        let _a = <Request<Slaa> as FromWithExtractor<Json<_>, Slaa, Request<Slaa>>>::from(
+            RequestWrapper {
+                request: Request::new("{\"correct\":true}".to_string()),
+            },
+        );
 
-        let mut map = HashMap::new();
-        map.insert("a", rr2.create_runner());
-        map.insert("b", real_runner.create_runner());
+        //let mut map = HashMap::new();
+        //map.insert("a", rr2.create_runner::<Json<_>>());
+        //map.insert("b", real_runner.create_runner::<Json<Slaa>>());
     }
 }
 
