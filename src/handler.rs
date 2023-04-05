@@ -123,37 +123,57 @@ where
 }
 
 #[cfg(test)]
-mod testttt {
+mod async_runner {
 
-    use http::Request;
+    use async_std_test::async_test;
+
+    use http::{Request, Response};
     use serde::Deserialize;
 
-    use super::{CRunner, FromWithExtractor, GenericHttpResponse, Json, RequestWrapper};
+    use super::{CRunner, GenericHttpResponse, Json, RequestWrapper};
 
-    #[derive(Deserialize)]
-    struct Slaa {
+    #[derive(Deserialize, Default)]
+    struct SomeBodyType {
         _correct: bool,
     }
 
-    async fn real_runner(_req: Request<Slaa>) -> GenericHttpResponse {
-        todo!()
+    async fn runner_with_request(_req: Request<SomeBodyType>) -> GenericHttpResponse {
+        Ok(Response::new(
+            serde_json::json!({"other_new_structure": true}).to_string(),
+        ))
     }
 
-    async fn rr2(_req: Slaa) -> GenericHttpResponse {
-        todo!()
+    async fn runner_with_simple_struct(_req: SomeBodyType) -> GenericHttpResponse {
+        Ok(Response::new(
+            serde_json::json!({"new_structure": true}).to_string(),
+        ))
     }
 
-    #[test]
-    fn test_aha() {
-        let _a = <Request<Slaa> as FromWithExtractor<Json<_>, Slaa, Request<Slaa>>>::from(
-            RequestWrapper {
-                request: Request::new("{\"correct\":true}".to_string()),
-            },
+    #[async_test]
+    async fn test_runner_works() -> std::io::Result<()> {
+        let body = serde_json::json!({"_correct": false}).to_string();
+        let request = RequestWrapper {
+            request: Request::new(body.clone()),
+        };
+
+        let request2 = RequestWrapper {
+            request: Request::new(body),
+        };
+
+        let handler1 = runner_with_simple_struct.create_runner(Json::default());
+        let handler2 = runner_with_request.create_runner(Json::default());
+
+        assert_eq!(
+            handler1(request).await.unwrap().into_body(),
+            serde_json::json!({"new_structure": true}).to_string()
         );
 
-        //let mut map = HashMap::new();
-        //map.insert("a", rr2.create_runner::<Json<_>>());
-        //map.insert("b", real_runner.create_runner::<Json<Slaa>>());
+        assert_eq!(
+            handler2(request2).await.unwrap().into_body(),
+            serde_json::json!({"other_new_structure": true}).to_string()
+        );
+
+        Ok(())
     }
 }
 
