@@ -72,7 +72,7 @@ trait BodyExtractors {
     fn extract(content: String) -> Result<Self::Item, String>;
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Json<T>(PhantomData<T>);
 
 impl<T> BodyExtractors for Json<T>
@@ -87,9 +87,9 @@ where
     }
 }
 
-impl From<LocalGenericHttpRequest> for Request<String> {
-    fn from(value: LocalGenericHttpRequest) -> Self {
-        value.request
+impl<T> Json<T> {
+    pub fn new() -> Self {
+        Self(PhantomData)
     }
 }
 
@@ -131,7 +131,7 @@ mod async_runner {
 
     use super::{CRunner, GenericHttpResponse, Json, RequestWrapper};
 
-    #[derive(Deserialize, Default)]
+    #[derive(Deserialize)]
     struct SomeBodyType {
         _correct: bool,
     }
@@ -159,8 +159,8 @@ mod async_runner {
             request: Request::new(body),
         };
 
-        let handler1 = runner_with_simple_struct.create_runner(Json::default());
-        let handler2 = runner_with_request.create_runner(Json::default());
+        let handler1 = runner_with_simple_struct.create_runner(Json::new());
+        let handler2 = runner_with_request.create_runner(Json::new());
 
         assert_eq!(
             handler1(request).await.unwrap().into_body(),
