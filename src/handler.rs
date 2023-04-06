@@ -59,7 +59,15 @@ pub struct RequestWrapper<Body> {
     request: Request<Body>,
 }
 
-trait BodyExtractors {
+impl<Body> RequestWrapper<Body> {
+    pub fn new(data: Body) -> Self {
+        Self {
+            request: Request::new(data),
+        }
+    }
+}
+
+pub trait BodyExtractors {
     type Item: DeserializeOwned;
     fn extract(content: String) -> Result<Self::Item, String>;
 }
