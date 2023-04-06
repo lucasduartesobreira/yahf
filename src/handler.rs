@@ -13,10 +13,9 @@ type InternalResult<T> = Result<T, Error>;
 type GenericHttpRequest = Request<String>;
 type GenericHttpResponse = InternalResult<Response<String>>;
 
-pub trait GenericHandlerClosure: Fn(GenericHttpRequest) -> GenericHttpResponse {}
-pub type BoxedHandler = Box<dyn GenericHandlerClosure>;
-pub type BoxedAsyncHandler<'a, 'b> =
-    Box<dyn 'a + Fn(LocalGenericHttpRequest) -> BoxFuture<'b, GenericHttpResponse>>;
+pub type BoxedAsyncHandler = Box<
+    dyn 'static + Fn(LocalGenericHttpRequest) -> Pin<Box<dyn Future<Output = GenericHttpResponse>>>,
+>;
 
 pub trait Runner<Req, Res, Input, Output> {
     fn create_run(self) -> BoxedHandler;
@@ -30,10 +29,7 @@ pub trait RealRunner<Input, Output, Extractor, BodyType>: Clone + Sync + Send {
 }
 
 pub trait CRunner<Input, Output, Extractor, BodyType> {
-    fn create_runner<'a, 'b>(&'a self, _extractor: Extractor) -> BoxedAsyncHandler<'a, 'b>
-    where
-        'a: 'b,
-        'a: 'static;
+    fn create_runner(&'static self, _extractor: Extractor) -> BoxedAsyncHandler;
 }
 
 #[async_trait]
@@ -54,11 +50,7 @@ where
     F: RealRunner<Req, Res, Extractor, BodyType> + 'static,
 {
     #[allow(unused_variables)]
-    fn create_runner<'a, 'b>(&'a self, extractor: Extractor) -> BoxedAsyncHandler<'a, 'b>
-    where
-        'a: 'b,
-        'a: 'static,
-    {
+    fn create_runner(&'static self, extractor: Extractor) -> BoxedAsyncHandler {
         Box::new(move |req: LocalGenericHttpRequest| Box::pin(async { self.run(req).await }))
     }
 }
