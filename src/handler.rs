@@ -45,7 +45,7 @@ where
     Res: Into<GenericHttpResponse>,
 {
     async fn run(&self, req: LocalGenericHttpRequest) -> GenericHttpResponse {
-        self(Req::from(req)?).await.into()
+        self(Req::try_from(req)?).await.into()
     }
 }
 
@@ -94,7 +94,7 @@ impl From<LocalGenericHttpRequest> for Request<String> {
 }
 
 trait TryFromWithExtractor<WithExtractor, BodyType, OutputType> {
-    fn from(value: LocalGenericHttpRequest) -> Result<OutputType, error::Error>;
+    fn try_from(value: LocalGenericHttpRequest) -> Result<OutputType, error::Error>;
 }
 
 impl<Req, Extractor> TryFromWithExtractor<Extractor, Req, Req> for Req
@@ -102,7 +102,7 @@ where
     Extractor: BodyExtractors<Item = Req>,
     Req: DeserializeOwned,
 {
-    fn from(value: LocalGenericHttpRequest) -> Result<Req, error::Error> {
+    fn try_from(value: LocalGenericHttpRequest) -> Result<Req, error::Error> {
         let body = value.request.into_body();
         Extractor::extract(body).map_err(error::Error::ParseBody)
     }
@@ -113,7 +113,7 @@ where
     Extractor: BodyExtractors<Item = Req>,
     Req: DeserializeOwned,
 {
-    fn from(value: LocalGenericHttpRequest) -> Result<Request<Req>, error::Error> {
+    fn try_from(value: LocalGenericHttpRequest) -> Result<Request<Req>, error::Error> {
         let (parts, body) = value.request.into_parts();
         Extractor::extract(body)
             .map(|result| Request::from_parts(parts, result))
