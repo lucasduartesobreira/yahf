@@ -93,7 +93,7 @@ impl From<LocalGenericHttpRequest> for Request<String> {
     }
 }
 
-trait TryFromWithExtractor<WithExtractor, BodyType, OutputType> {
+pub trait TryFromWithExtractor<WithExtractor, BodyType, OutputType> {
     fn try_from(value: LocalGenericHttpRequest) -> Result<OutputType, error::Error>;
 }
 
