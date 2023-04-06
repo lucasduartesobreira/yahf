@@ -17,9 +17,10 @@ pub type BoxedAsyncHandler = Box<
     dyn 'static + Fn(LocalGenericHttpRequest) -> Pin<Box<dyn Future<Output = GenericHttpResponse>>>,
 >;
 
-pub trait Runner<Req, Res, Input, Output> {
-    fn create_run(self) -> BoxedHandler;
-}
+pub type RefAsyncHandler<'a> =
+    &'a dyn Fn(
+        RequestWrapper<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<Response<String>, Error>>>>;
 
 type LocalGenericHttpRequest = RequestWrapper<String>;
 
