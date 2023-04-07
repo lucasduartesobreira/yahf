@@ -39,6 +39,7 @@ impl<'a> HandlerSelect<'a> {
         node.value = Some(handler);
     }
 
+    #[allow(dead_code)]
     pub fn get(&self, path: &'a str) -> Option<RefAsyncHandler<'_>> {
         let mut root = &self.root;
 

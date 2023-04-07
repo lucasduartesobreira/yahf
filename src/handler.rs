@@ -7,7 +7,9 @@ use serde::de::DeserializeOwned;
 
 use crate::error::{self, Error, HttpError};
 
+#[allow(dead_code)]
 type HandlerResult<T> = Result<T, HttpError>;
+#[allow(dead_code)]
 pub type HttpResult<T> = HandlerResult<Response<T>>;
 type InternalResult<T> = Result<T, Error>;
 pub type GenericHttpResponse = InternalResult<Response<String>>;
@@ -16,6 +18,7 @@ pub type BoxedAsyncHandler = Box<
     dyn 'static + Fn(LocalGenericHttpRequest) -> Pin<Box<dyn Future<Output = GenericHttpResponse>>>,
 >;
 
+#[allow(dead_code)]
 pub type RefAsyncHandler<'a> =
     &'a dyn Fn(
         RequestWrapper<String>,
@@ -88,6 +91,7 @@ where
 }
 
 impl<T> Json<T> {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self(PhantomData)
     }
