@@ -2,6 +2,7 @@ mod error;
 mod handle_selector;
 mod handler;
 
+use crate::handler::{BodyExtractors, CRunner, RealRunner};
 use handle_selector::HandlerSelect;
 
 #[derive(Default)]
@@ -16,48 +17,49 @@ impl<'a> Server<'a> {
         }
     }
 
-    pub fn add_handler<Req, Res, Input, Output, R>(&mut self, path: &'static str, handler: R)
-    where
-        R: 'static + handler::Runner<Req, Res, Input, Output>,
+    pub fn add_handler<Req, Res, BodyType, Extractor, R>(
+        &mut self,
+        path: &'static str,
+        handler: &'static R,
+        extractor: Extractor,
+    ) where
+        R: 'static + RealRunner<Req, Res, Extractor, BodyType>,
+        Extractor: BodyExtractors<Item = BodyType>,
     {
-        self.handler_selector.insert(path, handler.create_run());
+        self.handler_selector
+            .insert(path, handler.create_runner(extractor));
     }
 }
 
 #[cfg(test)]
 mod tests {
 
+    use async_std_test::async_test;
     use http::{Request, Response};
     use serde::{Deserialize, Serialize};
 
     use crate::{
         error::Error,
-        handler::{Handler, HttpResult},
+        handler::{GenericHttpResponse, Json, RequestWrapper},
         Server,
     };
 
-    #[derive(Debug, Deserialize, Serialize)]
+    #[derive(Debug, Deserialize, Serialize, Default)]
     struct TestStruct {
         correct: bool,
     }
 
-    fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> HttpResult<TestStruct> {
-        Ok(Response::new(TestStruct { correct: true }))
+    async fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> GenericHttpResponse {
+        Ok(Response::new(
+            serde_json::to_string(&TestStruct { correct: true }).unwrap(),
+        ))
     }
 
-    fn test_handler_with_req_and_res2(_req: TestStruct) -> TestStruct {
-        _req
-    }
-
-    #[test]
-    fn test_handler_receiving_req_and_res() {
+    #[async_test]
+    async fn test_handler_receiving_req_and_res() -> std::io::Result<()> {
         let mut server = Server::new();
 
-        server.add_handler("/aaaa/bbbb", test_handler_with_req_and_res);
-        server.add_handler("/bbbb/cccc", {
-            Handler::new(test_handler_with_req_and_res2)
-                .pre_hook(|_input: TestStruct| TestStruct { correct: true })
-        });
+        server.add_handler("/aaaa/bbbb", &test_handler_with_req_and_res, Json::new());
 
         let handler = server.handler_selector.get("/aaaa/bbbb");
 
@@ -65,11 +67,9 @@ mod tests {
 
         let unwraped_handler = handler.unwrap();
 
-        let request = Request::builder()
-            .body(serde_json::json!({ "correct": false }).to_string())
-            .unwrap();
+        let request = RequestWrapper::new(serde_json::json!({ "correct": false }).to_string());
 
-        let response = unwraped_handler(request);
+        let response = unwraped_handler(request).await;
 
         assert!(
             response.is_ok(),
@@ -85,30 +85,6 @@ mod tests {
             serde_json::json!({ "correct": true }).to_string()
         );
 
-        let handler = server.handler_selector.get("/bbbb/cccc");
-
-        assert!(handler.is_some());
-
-        let unwraped_handler = handler.unwrap();
-
-        let request = Request::builder()
-            .body(serde_json::json!({ "correct": true }).to_string())
-            .unwrap();
-
-        let response = unwraped_handler(request);
-
-        assert!(
-            response.is_ok(),
-            "Mensagem de erro: {}",
-            match response.err().unwrap() {
-                Error::ParseBody(message) => message,
-                Error::RequestError(error) => error._body,
-            }
-        );
-
-        assert_eq!(
-            *response.unwrap().body(),
-            serde_json::json!({ "correct": true }).to_string()
-        );
+        Ok(())
     }
 }
