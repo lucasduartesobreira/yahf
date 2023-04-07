@@ -49,10 +49,8 @@ impl<'a> HandlerSelect<'a> {
                 (None, Some(wildcard_node)) => root = wildcard_node.as_ref(),
                 (Some(childrens), None) => {
                     if childrens.contains_key(splitted_path) {
-                        println!("Sla");
                         root = childrens.get(splitted_path).unwrap();
                     } else {
-                        println!("Sla2");
                         return None;
                     }
                 }
