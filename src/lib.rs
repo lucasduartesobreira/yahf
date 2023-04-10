@@ -141,7 +141,7 @@ mod tests {
         Method, Server,
     };
 
-    #[derive(Clone, Debug, Deserialize, Serialize, Default)]
+    #[derive(Debug, Deserialize, Serialize)]
     struct TestStruct {
         correct: bool,
     }
