@@ -152,8 +152,8 @@ mod tests {
         ))
     }
 
-    async fn run_test(server: &Server<'_>, _req: Request<String>) -> GenericHttpResponse {
-        let method = _req.method();
+    async fn run_test(server: &Server<'_>, req: Request<String>) -> GenericHttpResponse {
+        let method = req.method();
         let our_method = match *method {
             http::Method::GET => Method::Get,
             http::Method::POST => Method::Post,
@@ -162,7 +162,7 @@ mod tests {
             _ => unreachable!("Wrong tests for the moment"),
         };
 
-        let path = _req.uri().path().to_string();
+        let path = req.uri().path().to_string();
 
         println!("{}", path);
 
@@ -170,7 +170,7 @@ mod tests {
 
         assert!(handler.is_some());
 
-        handler.unwrap()(RequestWrapper::new(_req.into_body())).await
+        handler.unwrap()(RequestWrapper::new(req.into_body())).await
     }
 
     #[async_test]
