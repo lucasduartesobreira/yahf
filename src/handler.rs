@@ -32,7 +32,7 @@ pub trait RealRunner<Input, Output, Extractor, BodyType>: Clone + Sync + Send {
 }
 
 pub trait CRunner<Input, Output, Extractor, BodyType> {
-    fn create_runner(&'static self, _extractor: Extractor) -> BoxedAsyncHandler;
+    fn create_runner(&'static self, _extractor: &Extractor) -> BoxedAsyncHandler;
 }
 
 #[async_trait]
@@ -53,7 +53,7 @@ where
     F: RealRunner<Req, Res, Extractor, BodyType> + 'static,
 {
     #[allow(unused_variables)]
-    fn create_runner(&'static self, extractor: Extractor) -> BoxedAsyncHandler {
+    fn create_runner(&'static self, extractor: &Extractor) -> BoxedAsyncHandler {
         Box::new(move |req: LocalGenericHttpRequest| Box::pin(async { self.run(req).await }))
     }
 }
@@ -75,7 +75,7 @@ pub trait BodyExtractors {
     fn extract(content: String) -> Result<Self::Item, String>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Json<T>(PhantomData<T>);
 
 impl<T> BodyExtractors for Json<T>
@@ -163,8 +163,8 @@ mod async_runner {
             request: Request::new(body),
         };
 
-        let handler1 = runner_with_simple_struct.create_runner(Json::new());
-        let handler2 = runner_with_request.create_runner(Json::new());
+        let handler1 = runner_with_simple_struct.create_runner(&Json::new());
+        let handler2 = runner_with_request.create_runner(&Json::new());
 
         assert_eq!(
             handler1(request).await.unwrap().into_body(),
