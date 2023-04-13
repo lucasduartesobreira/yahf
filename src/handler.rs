@@ -207,6 +207,33 @@ mod improv {
         where
             Self: std::marker::Sized;
     }
+
+    impl<BodyType, Extractor> RunnerInput<Extractor> for BodyType
+    where
+        Extractor: BodyDeserializer<Item = BodyType>,
+        BodyType: DeserializeOwned,
+    {
+        fn try_into(input: Request<String>) -> Result<Self>
+        where
+            Self: std::marker::Sized,
+        {
+            Extractor::deserialize(input.body())
+        }
+    }
+
+    impl<BodyType, Extractor> RunnerInput<Extractor> for Request<BodyType>
+    where
+        Extractor: BodyDeserializer<Item = BodyType>,
+        BodyType: DeserializeOwned,
+    {
+        fn try_into(input: Request<String>) -> Result<Self>
+        where
+            Self: std::marker::Sized,
+        {
+            input.and_then(|body| Extractor::deserialize(&body))
+        }
+    }
+
     pub trait RunnerOutput<Serializer> {
         fn try_into(self) -> Result<Response<String>>;
     }
