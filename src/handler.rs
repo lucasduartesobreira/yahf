@@ -265,6 +265,38 @@ mod improv {
             run: Request<StandardBodyType>,
         ) -> Result<Response<StandardBodyType>>;
     }
+
+    #[async_trait]
+    impl<ReqBody, ResBody, FnIn, FnOut, BodyDes, BodySer, Fut, F>
+        Runner<(FnIn, BodyDes), (FnOut, BodySer)> for F
+    where
+        F: Fn(FnIn) -> Fut + Send + Sync + Clone,
+        Fut: Future<Output = FnOut> + Send,
+        FnIn: RunnerInput<BodyDes> + Send,
+        BodyDes: BodyDeserializer<Item = ReqBody>,
+        ReqBody: DeserializeOwned,
+        FnOut: RunnerOutput<BodySer>,
+        BodySer: BodySerializer<Item = ResBody>,
+        ResBody: Serialize,
+    {
+        async fn call_runner(&self, inp: Request<String>) -> Result<Response<String>> {
+            FnOut::try_into(self(FnIn::try_into(inp)?).await)
+        }
+    }
+
+    #[async_trait]
+    impl<ResBody, FnOut, BodySer, Fut, F> Runner<((), ()), (FnOut, BodySer)> for F
+    where
+        F: Fn() -> Fut + Send + Sync + Clone,
+        Fut: Future<Output = FnOut> + Send,
+        FnOut: RunnerOutput<BodySer>,
+        BodySer: BodySerializer<Item = ResBody>,
+        ResBody: Serialize,
+    {
+        async fn call_runner(&self, _inp: Request<String>) -> Result<Response<String>> {
+            FnOut::try_into(self().await)
+        }
+    }
 }
 
 #[cfg(test)]
