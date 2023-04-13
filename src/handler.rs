@@ -297,6 +297,38 @@ mod improv {
             FnOut::try_into(self().await)
         }
     }
+
+    struct Json<T>(PhantomData<T>);
+
+    impl<T> BodyDeserializer for Json<T>
+    where
+        T: DeserializeOwned,
+    {
+        type Item = T;
+
+        fn deserialize(content: &StandardBodyType) -> Result<Self::Item>
+        where
+            Self: std::marker::Sized,
+        {
+            serde_json::from_str(content).map_err(|err| SerdeError {
+                body: err.to_string(),
+            })
+        }
+    }
+
+    impl<T> BodySerializer for Json<T>
+    where
+        T: Serialize,
+    {
+        type Item = T;
+
+        fn serialize(content: &Self::Item) -> Result<String> {
+            serde_json::to_string(content).map_err(|err| SerdeError {
+                body: err.to_string(),
+            })
+        }
+    }
+
 }
 
 #[cfg(test)]
