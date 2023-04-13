@@ -125,6 +125,67 @@ where
     }
 }
 
+mod improv {
+    #[derive(Debug)]
+    pub struct SerdeError {
+        body: String,
+    }
+
+    impl SerdeError {
+        pub fn new(body: String) -> Self {
+            Self { body }
+        }
+    }
+
+    pub struct Request<T> {
+        body: T,
+    }
+
+    type Result<T> = std::result::Result<T, SerdeError>;
+
+    impl<T> Request<T> {
+        fn new(value: T) -> Self {
+            Self { body: value }
+        }
+
+        fn body(&self) -> &T {
+            &self.body
+        }
+
+        // TODO: Valuate if this will keep this fn or move to an from_parts style
+        fn and_then<BodyType>(
+            self,
+            callback: impl FnOnce(T) -> Result<BodyType>,
+        ) -> Result<Request<BodyType>> {
+            let body = self.body;
+            callback(body).map(Request::<BodyType>::new)
+        }
+    }
+
+    pub struct Response<T> {
+        body: T,
+    }
+
+    impl<T> Response<T> {
+        fn new(value: T) -> Self {
+            Self { body: value }
+        }
+
+        fn body(&self) -> &T {
+            &self.body
+        }
+
+        // TODO: Valuate if this will keep this fn or move to an from_parts style
+        fn and_then<BodyType>(
+            self,
+            callback: impl FnOnce(T) -> Result<BodyType>,
+        ) -> Result<Response<BodyType>> {
+            let body = self.body;
+            callback(body).map(Response::<BodyType>::new)
+        }
+    }
+}
+
 #[cfg(test)]
 mod async_runner {
 
