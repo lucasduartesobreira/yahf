@@ -329,6 +329,30 @@ mod improv {
         }
     }
 
+    fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
+        runner: R,
+        _deserializer: &Deserializer,
+        _serializer: &Serializer,
+    ) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Result<Response<String>>>>>
+    where
+        R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+        FnInput: 'static,
+        FnOutput: 'static,
+    {
+        move |request| Box::pin(call_runner(runner.clone(), request))
+    }
+
+    async fn call_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
+        runner: R,
+        req: Request<String>,
+    ) -> Result<Response<String>>
+    where
+        R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)>,
+    {
+        runner.call_runner(req).await
+    }
 }
 
 #[cfg(test)]
