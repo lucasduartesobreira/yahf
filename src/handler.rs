@@ -257,6 +257,14 @@ mod improv {
             Serializer::serialize(&self).map(Response::new)
         }
     }
+
+    #[async_trait]
+    pub trait Runner<Input, Output>: Clone + Send + Sync {
+        async fn call_runner(
+            &self,
+            run: Request<StandardBodyType>,
+        ) -> Result<Response<StandardBodyType>>;
+    }
 }
 
 #[cfg(test)]
