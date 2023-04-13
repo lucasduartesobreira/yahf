@@ -184,6 +184,32 @@ mod improv {
             callback(body).map(Response::<BodyType>::new)
         }
     }
+
+    type StandardBodyType = String;
+
+    trait BodyDeserializer {
+        type Item: DeserializeOwned;
+
+        fn deserialize(content: &StandardBodyType) -> Result<Self::Item>
+        where
+            Self: std::marker::Sized;
+    }
+
+    trait BodySerializer {
+        type Item: Serialize;
+
+        fn serialize(content: &Self::Item) -> Result<StandardBodyType>;
+    }
+
+    /// Describes a type that can be extracted using a BodyExtractors
+    pub trait RunnerInput<Extractor> {
+        fn try_into(input: Request<StandardBodyType>) -> Result<Self>
+        where
+            Self: std::marker::Sized;
+    }
+    pub trait RunnerOutput<Serializer> {
+        fn try_into(self) -> Result<Response<String>>;
+    }
 }
 
 #[cfg(test)]
