@@ -2,7 +2,7 @@ mod error;
 mod handle_selector;
 mod handler;
 
-use crate::handler::{BodyExtractors, CRunner, RealRunner, RefAsyncHandler};
+use crate::handler::{encapsulate_runner, Method, RefHandler, Runner};
 use handle_selector::HandlerSelect;
 
 #[derive(Default)]
@@ -11,13 +11,6 @@ pub struct Server<'a> {
     put: HandlerSelect<'a>,
     delete: HandlerSelect<'a>,
     post: HandlerSelect<'a>,
-}
-
-pub enum Method {
-    Get,
-    Post,
-    Put,
-    Delete,
 }
 
 impl<'a> Server<'a> {
@@ -30,80 +23,116 @@ impl<'a> Server<'a> {
         }
     }
 
-    pub fn add_handler<Req, Res, BodyType, Extractor, R>(
+    pub fn add_handler<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         method: Method,
         path: &'static str,
-        handler: &'static R,
-        extractor: &Extractor,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
     ) where
-        R: 'static + RealRunner<Req, Res, Extractor, BodyType>,
-        Extractor: BodyExtractors<Item = BodyType>,
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
     {
         match method {
-            Method::Get => self.get.insert(path, handler.create_runner(extractor)),
-            Method::Put => self.put.insert(path, handler.create_runner(extractor)),
-            Method::Delete => self.delete.insert(path, handler.create_runner(extractor)),
-            Method::Post => self.post.insert(path, handler.create_runner(extractor)),
+            Method::Get => self.get.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::Put => self.put.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::Delete => self.delete.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::Post => self.post.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
         }
     }
 
-    pub fn get<Req, Res, BodyType, Extractor, R>(
+    pub fn get<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         path: &'static str,
-        handler: &'static R,
-        extractor: &Extractor,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
     ) where
-        R: 'static + RealRunner<Req, Res, Extractor, BodyType>,
-        Extractor: BodyExtractors<Item = BodyType>,
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
     {
-        self.add_handler(Method::Get, path, handler, extractor)
+        self.add_handler(Method::Get, path, handler, deserializer, serializer)
     }
 
-    pub fn post<Req, Res, BodyType, Extractor, R>(
+    pub fn post<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         path: &'static str,
-        handler: &'static R,
-        extractor: &Extractor,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
     ) where
-        R: 'static + RealRunner<Req, Res, Extractor, BodyType>,
-        Extractor: BodyExtractors<Item = BodyType>,
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
     {
-        self.add_handler(Method::Post, path, handler, extractor)
+        self.add_handler(Method::Post, path, handler, deserializer, serializer)
     }
 
-    pub fn put<Req, Res, BodyType, Extractor, R>(
+    pub fn put<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         path: &'static str,
-        handler: &'static R,
-        extractor: &Extractor,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
     ) where
-        R: 'static + RealRunner<Req, Res, Extractor, BodyType>,
-        Extractor: BodyExtractors<Item = BodyType>,
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
     {
-        self.add_handler(Method::Put, path, handler, extractor)
+        self.add_handler(Method::Put, path, handler, deserializer, serializer)
     }
 
-    pub fn delete<Req, Res, BodyType, Extractor, R>(
+    pub fn delete<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         path: &'static str,
-        handler: &'static R,
-        extractor: &Extractor,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
     ) where
-        R: 'static + RealRunner<Req, Res, Extractor, BodyType>,
-        Extractor: BodyExtractors<Item = BodyType>,
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
     {
-        self.add_handler(Method::Delete, path, handler, extractor)
+        self.add_handler(Method::Get, path, handler, deserializer, serializer)
     }
 
-    pub fn all<Req, Res, BodyType, Extractor, R>(
+    pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         path: &'static str,
-        handler: &'static R,
-        extractor: &Extractor,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
     ) where
-        R: 'static + RealRunner<Req, Res, Extractor, BodyType>,
-        Extractor: BodyExtractors<Item = BodyType>,
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
     {
         if let (None, None, None, None) = (
             self.get.get(path),
@@ -111,14 +140,38 @@ impl<'a> Server<'a> {
             self.put.get(path),
             self.delete.get(path),
         ) {
-            self.get.insert(path, handler.create_runner(extractor));
-            self.post.insert(path, handler.create_runner(extractor));
-            self.put.insert(path, handler.create_runner(extractor));
-            self.delete.insert(path, handler.create_runner(extractor));
+            self.get.insert(
+                path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.post.insert(
+                path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.put.insert(
+                path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.delete.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            );
         }
     }
 
-    pub fn find_handler(&'a self, method: Method, path: &'a str) -> Option<RefAsyncHandler<'a>> {
+    fn find_handler(&'a self, method: &Method, path: &'a str) -> Option<RefHandler<'a>> {
         match method {
             Method::Get => self.get.get(path),
             Method::Put => self.put.get(path),
@@ -132,45 +185,32 @@ impl<'a> Server<'a> {
 mod tests {
 
     use async_std_test::async_test;
-    use http::{Request, Response};
     use serde::{Deserialize, Serialize};
 
     use crate::{
-        error::Error,
-        handler::{GenericHttpResponse, Json, RequestWrapper},
-        Method, Server,
+        handler::{GenericResponse, Json, Method, Request, Response},
+        Server,
     };
 
-    #[derive(Debug, Deserialize, Serialize)]
+    #[derive(Debug, Deserialize, Serialize, PartialEq)]
     struct TestStruct {
         correct: bool,
     }
 
-    async fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> GenericHttpResponse {
-        Ok(Response::new(
-            serde_json::to_string(&TestStruct { correct: true }).unwrap(),
-        ))
+    async fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> GenericResponse {
+        Response::new(serde_json::to_string(&TestStruct { correct: true }).unwrap())
     }
 
-    async fn run_test(server: &Server<'_>, req: Request<String>) -> GenericHttpResponse {
+    async fn run_test(server: &Server<'_>, req: Request<String>) -> GenericResponse {
         let method = req.method();
-        let our_method = match *method {
-            http::Method::GET => Method::Get,
-            http::Method::POST => Method::Post,
-            http::Method::PUT => Method::Put,
-            http::Method::DELETE => Method::Delete,
-            _ => unreachable!("Wrong tests for the moment"),
-        };
 
         let path = req.uri().path().to_string();
 
-        println!("{}", path);
-
-        let handler = server.find_handler(our_method, &path);
+        let handler = server.find_handler(method, path.as_str());
 
         assert!(handler.is_some());
 
-        handler.unwrap()(RequestWrapper::new(req.into_body())).await
+        handler.unwrap()(req).await
     }
 
     #[async_test]
@@ -180,29 +220,19 @@ mod tests {
         server.add_handler(
             Method::Get,
             "/aaaa/bbbb",
-            &test_handler_with_req_and_res,
+            test_handler_with_req_and_res,
             &Json::new(),
+            &String::from(""),
         );
 
-        let request = Request::builder()
-            .uri("/aaaa/bbbb")
-            .body(serde_json::json!({ "correct": false }).to_string())
-            .unwrap();
+        let mut request = Request::new(serde_json::json!({ "correct": false }).to_string());
+        *request.uri_mut().path_mut() = String::from("/aaaa/bbbb");
 
         let response = run_test(&server, request).await;
 
-        assert!(
-            response.is_ok(),
-            "Mensagem de erro: {}",
-            match response.err().unwrap() {
-                Error::ParseBody(message) => message,
-                Error::RequestError(error) => error._body,
-            }
-        );
-
         assert_eq!(
-            *response.unwrap().body(),
-            serde_json::json!({ "correct": true }).to_string()
+            response.body(),
+            &serde_json::json!({ "correct": true }).to_string()
         );
 
         Ok(())
@@ -212,46 +242,46 @@ mod tests {
     async fn test_all_servers() -> std::io::Result<()> {
         let mut server = Server::new();
 
-        server.all("/test/all", &test_handler_with_req_and_res, &Json::new());
+        server.all(
+            "/test/all",
+            test_handler_with_req_and_res,
+            &Json::new(),
+            &String::new(),
+        );
 
         let req_body = serde_json::json!({ "correct": false }).to_string();
         let expected_res_body = serde_json::json!({ "correct": true }).to_string();
 
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(http::Method::GET)
-            .body(req_body.clone())
-            .unwrap();
+        let mut request = Request::new(req_body.clone());
+        *request.uri_mut().path_mut() = String::from("/test/all");
+
         let response = run_test(&server, request).await;
 
-        assert_eq!(*response.unwrap().body(), expected_res_body.clone());
+        assert_eq!(*response.body(), expected_res_body.clone());
 
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(http::Method::POST)
-            .body(req_body.clone())
-            .unwrap();
+        let mut request = Request::new(req_body.clone());
+        *request.method_mut() = Method::Post;
+        *request.uri_mut().path_mut() = String::from("/test/all");
+
         let response = run_test(&server, request).await;
 
-        assert_eq!(*response.unwrap().body(), expected_res_body.clone());
+        assert_eq!(*response.body(), expected_res_body.clone());
 
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(http::Method::PUT)
-            .body(req_body.clone())
-            .unwrap();
+        let mut request = Request::new(req_body.clone());
+        *request.method_mut() = Method::Put;
+        *request.uri_mut().path_mut() = String::from("/test/all");
+
         let response = run_test(&server, request).await;
 
-        assert_eq!(*response.unwrap().body(), expected_res_body.clone());
+        assert_eq!(*response.body(), expected_res_body.clone());
 
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(http::Method::DELETE)
-            .body(req_body.clone())
-            .unwrap();
+        let mut request = Request::new(req_body.clone());
+        *request.method_mut() = Method::Delete;
+        *request.uri_mut().path_mut() = String::from("/test/all");
+
         let response = run_test(&server, request).await;
 
-        assert_eq!(*response.unwrap().body(), expected_res_body.clone());
+        assert_eq!(*response.body(), expected_res_body.clone());
 
         Ok(())
     }

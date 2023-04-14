@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use crate::handler::{BoxedAsyncHandler, RefAsyncHandler};
+use crate::handler::{BoxedHandler, RefHandler};
 
 #[derive(Default)]
 struct Node<'a> {
     childrens: Option<HashMap<&'a str, Node<'a>>>,
     wildcard_node: Option<Box<Node<'a>>>,
-    value: Option<BoxedAsyncHandler>,
+    value: Option<BoxedHandler>,
 }
 
 #[derive(Default)]
@@ -25,7 +25,7 @@ impl<'a> HandlerSelect<'a> {
         }
     }
 
-    pub fn insert(&mut self, path: &'a str, handler: BoxedAsyncHandler) {
+    pub fn insert(&mut self, path: &'a str, handler: BoxedHandler) {
         let mut node = &mut self.root;
         for splitted_path in path.split('/').filter(|x| !x.is_empty()) {
             if is_parameter_declaration(splitted_path) {
@@ -40,7 +40,7 @@ impl<'a> HandlerSelect<'a> {
     }
 
     #[allow(dead_code)]
-    pub fn get(&self, path: &'a str) -> Option<RefAsyncHandler<'_>> {
+    pub fn get(&self, path: &'a str) -> Option<RefHandler<'_>> {
         let mut root = &self.root;
 
         for splitted_path in path.split('/').filter(|x| !x.is_empty()) {

@@ -5,10 +5,12 @@ use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 
 type StandardBodyType = String;
-type GenericRequest = Request<StandardBodyType>;
-type GenericResponse = Response<StandardBodyType>;
-type BoxedHandler = Box<dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse>>>>;
-type RefHandler<'a> = &'a dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse>>>;
+pub type GenericRequest = Request<StandardBodyType>;
+pub type GenericResponse = Response<StandardBodyType>;
+pub type BoxedHandler =
+    Box<dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse>>>>;
+pub type RefHandler<'a> =
+    &'a dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse>>>;
 
 #[derive(Debug)]
 pub struct SerdeError {
@@ -21,18 +23,65 @@ impl SerdeError {
     }
 }
 
+impl From<SerdeError> for GenericResponse {
+    fn from(val: SerdeError) -> Self {
+        GenericResponse::new(val.body)
+    }
+}
+
+pub enum Method {
+    Get,
+    Post,
+    Put,
+    Delete,
+}
+
 pub struct Request<T> {
     body: T,
+    method: Method,
+    uri: Uri,
+}
+
+pub struct Uri {
+    path: String,
+    host: String,
+}
+
+impl Uri {
+    pub fn path(&self) -> &str {
+        self.path.as_str()
+    }
+
+    pub fn path_mut(&mut self) -> &mut String {
+        &mut self.path
+    }
+
+    pub fn host(&self) -> &str {
+        self.host.as_str()
+    }
+}
+
+impl Default for Uri {
+    fn default() -> Self {
+        Uri {
+            path: String::from("/"),
+            host: String::from("http://localhost"),
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, SerdeError>;
 
 impl<T> Request<T> {
-    fn new(value: T) -> Self {
-        Self { body: value }
+    pub fn new(value: T) -> Self {
+        Self {
+            body: value,
+            method: Method::Get,
+            uri: Uri::default(),
+        }
     }
 
-    fn body(&self) -> &T {
+    pub fn body(&self) -> &T {
         &self.body
     }
 
@@ -44,6 +93,22 @@ impl<T> Request<T> {
         let body = self.body;
         callback(body).map(Request::<BodyType>::new)
     }
+
+    pub fn method(&self) -> &Method {
+        &self.method
+    }
+
+    pub fn method_mut(&mut self) -> &mut Method {
+        &mut self.method
+    }
+
+    pub fn uri(&self) -> &Uri {
+        &self.uri
+    }
+
+    pub fn uri_mut(&mut self) -> &mut Uri {
+        &mut self.uri
+    }
 }
 
 pub struct Response<T> {
@@ -51,11 +116,11 @@ pub struct Response<T> {
 }
 
 impl<T> Response<T> {
-    fn new(value: T) -> Self {
+    pub fn new(value: T) -> Self {
         Self { body: value }
     }
 
-    fn body(&self) -> &T {
+    pub fn body(&self) -> &T {
         &self.body
     }
 
@@ -69,7 +134,7 @@ impl<T> Response<T> {
     }
 }
 
-trait BodyDeserializer {
+pub trait BodyDeserializer {
     type Item: DeserializeOwned;
 
     fn deserialize(content: &StandardBodyType) -> Result<Self::Item>
@@ -77,8 +142,8 @@ trait BodyDeserializer {
         Self: std::marker::Sized;
 }
 
-trait BodySerializer {
-    type Item: Serialize;
+pub trait BodySerializer {
+    type Item;
 
     fn serialize(content: &Self::Item) -> Result<StandardBodyType>;
 }
@@ -142,10 +207,7 @@ where
 
 #[async_trait]
 pub trait Runner<Input, Output>: Clone + Send + Sync {
-    async fn call_runner(
-        &self,
-        run: Request<StandardBodyType>,
-    ) -> Result<Response<StandardBodyType>>;
+    async fn call_runner(&self, run: Request<StandardBodyType>) -> Response<StandardBodyType>;
 }
 
 #[async_trait]
@@ -161,8 +223,14 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, inp: Request<String>) -> Result<Response<String>> {
-        FnOut::try_into(self(FnIn::try_into(inp)?).await)
+    async fn call_runner(&self, inp: Request<String>) -> Response<String> {
+        match FnIn::try_into(inp) {
+            Ok(req) => match FnOut::try_into(self(req).await) {
+                Ok(response) => response,
+                Err(serde_error) => serde_error.into(),
+            },
+            Err(serde_error) => serde_error.into(),
+        }
     }
 }
 
@@ -175,15 +243,18 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, _inp: Request<String>) -> Result<Response<String>> {
-        FnOut::try_into(self().await)
+    async fn call_runner(&self, _inp: Request<String>) -> Response<String> {
+        match FnOut::try_into(self().await) {
+            Ok(response) => response,
+            Err(serde_error) => serde_error.into(),
+        }
     }
 }
 
 pub struct Json<T>(PhantomData<T>);
 
 impl<T> Json<T> {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self(PhantomData)
     }
 }
@@ -217,11 +288,19 @@ where
     }
 }
 
-fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
+impl BodySerializer for String {
+    type Item = String;
+
+    fn serialize(content: &Self::Item) -> Result<StandardBodyType> {
+        Ok(content.to_owned())
+    }
+}
+
+pub fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
     _deserializer: &Deserializer,
     _serializer: &Serializer,
-) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Result<Response<String>>>>>
+) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Response<String>>>>
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     Deserializer: 'static,
@@ -235,7 +314,7 @@ where
 async fn call_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
     req: Request<String>,
-) -> Result<Response<String>>
+) -> Response<String>
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)>,
 {
@@ -244,12 +323,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::marker::PhantomData;
 
     use async_std_test::async_test;
     use serde::{Deserialize, Serialize};
 
-    use crate::handler::Json;
+    use crate::handler::{Json, Method, Uri};
 
     use super::{encapsulate_runner, Request, Response};
 
@@ -287,14 +365,16 @@ mod tests {
 
     #[async_test]
     async fn test_simple_handler_implements_runner() -> std::io::Result<()> {
-        let a = encapsulate_runner(simple_handler, &Json(PhantomData), &Json(PhantomData));
+        let a = encapsulate_runner(simple_handler, &Json::new(), &Json::new());
         let b = a(Request {
             body: serde_json::json!({ "field": "South of the border" }).to_string(),
+            uri: Uri::default(),
+            method: Method::Get,
         })
         .await;
 
         assert_eq!(
-            b.unwrap().body().as_str(),
+            b.body().as_str(),
             serde_json::json!({ "field": "South of the border - Ed Sheeran"  }).to_string()
         );
 
@@ -303,16 +383,18 @@ mod tests {
 
     #[async_test]
     async fn test_unit_handler_implements_runner() -> std::io::Result<()> {
-        let a = encapsulate_runner(unit_handler, &(), &Json(PhantomData));
+        let a = encapsulate_runner(unit_handler, &(), &Json::new());
         let b = a(Request {
             body: serde_json::json!({ "field": "South of the border" }).to_string(),
+            uri: Uri::default(),
+            method: Method::Get,
         })
         .await;
 
         let expected_field_result = "HOPE - NF";
 
         assert_eq!(
-            b.unwrap().body().as_str(),
+            b.body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -321,20 +403,18 @@ mod tests {
 
     #[async_test]
     async fn test_simple_handler_with_body_implements_runner() -> std::io::Result<()> {
-        let a = encapsulate_runner(
-            simple_handler_with_body,
-            &Json(PhantomData),
-            &Json(PhantomData),
-        );
+        let a = encapsulate_runner(simple_handler_with_body, &Json::new(), &Json::new());
         let b = a(Request {
             body: serde_json::json!({ "field": "So Good" }).to_string(),
+            uri: Uri::default(),
+            method: Method::Get,
         })
         .await;
 
         let expected_field_result = "So Good - Halsey";
 
         assert_eq!(
-            b.unwrap().body().as_str(),
+            b.body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -345,18 +425,20 @@ mod tests {
     async fn test_handler_with_simple_body_on_input_and_output_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(
             handler_with_simple_body_on_input_and_output,
-            &Json(PhantomData),
-            &Json(PhantomData),
+            &Json::new(),
+            &Json::new(),
         );
         let b = a(Request {
             body: serde_json::json!({ "field": "Sharks" }).to_string(),
+            uri: Uri::default(),
+            method: Method::Get,
         })
         .await;
 
         let expected_field_result = "Sharks - Imagine Dragons";
 
         assert_eq!(
-            b.unwrap().body().as_str(),
+            b.body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
