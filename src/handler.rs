@@ -152,7 +152,7 @@ where
     where
         Self: std::marker::Sized,
     {
-        serde_json::from_str(content).map_err(|err| Error::new(err.to_string()))
+        serde_json::from_str(content).map_err(|err| Error::new(err.to_string(), 422))
     }
 }
 
@@ -163,7 +163,7 @@ where
     type Item = T;
 
     fn serialize(content: &Self::Item) -> Result<String> {
-        serde_json::to_string(content).map_err(|err| Error::new(err.to_string()))
+        serde_json::to_string(content).map_err(|err| Error::new(err.to_string(), 422))
     }
 }
 
