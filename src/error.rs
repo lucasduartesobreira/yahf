@@ -1,11 +1,18 @@
-#[derive(Debug)]
-pub struct HttpError {
-    pub _code: u32,
-    pub _body: String,
-}
+use crate::response::Response;
 
 #[derive(Debug)]
-pub enum Error {
-    ParseBody(String),
-    RequestError(HttpError),
+pub struct Error {
+    body: String,
+}
+
+impl Error {
+    pub fn new(body: String) -> Self {
+        Self { body }
+    }
+}
+
+impl From<Error> for Response<String> {
+    fn from(val: Error) -> Self {
+        Response::new(val.body)
+    }
 }
