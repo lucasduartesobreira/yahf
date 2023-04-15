@@ -29,43 +29,39 @@ impl From<SerdeError> for GenericResponse {
     }
 }
 
-pub enum Method {
-    Get,
-    Post,
-    Put,
-    Delete,
-}
+pub type Method = http::Method;
+pub type Uri = http::Uri;
+pub type HttpRequest<T> = http::Request<T>;
+pub type HttpBuilder = http::request::Builder;
 
 pub struct Request<T> {
-    body: T,
-    method: Method,
-    uri: Uri,
+    request: HttpRequest<T>,
 }
 
-pub struct Uri {
-    path: String,
-    host: String,
+pub struct Builder {
+    pub builder: HttpBuilder,
 }
 
-impl Uri {
-    pub fn path(&self) -> &str {
-        self.path.as_str()
+impl Builder {
+    pub fn uri<T>(self, uri: T) -> Builder
+    where
+        Uri: TryFrom<T>,
+        <Uri as TryFrom<T>>::Error: Into<http::Error>,
+    {
+        Self {
+            builder: self.builder.uri(uri),
+        }
     }
 
-    pub fn path_mut(&mut self) -> &mut String {
-        &mut self.path
+    pub fn body<T>(self, body: T) -> Request<T> {
+        Request {
+            request: self.builder.body(body).unwrap(),
+        }
     }
 
-    pub fn host(&self) -> &str {
-        self.host.as_str()
-    }
-}
-
-impl Default for Uri {
-    fn default() -> Self {
-        Uri {
-            path: String::from("/"),
-            host: String::from("http://localhost"),
+    pub fn method(self, method: Method) -> Self {
+        Self {
+            builder: self.builder.method(method),
         }
     }
 }
@@ -75,14 +71,12 @@ type Result<T> = std::result::Result<T, SerdeError>;
 impl<T> Request<T> {
     pub fn new(value: T) -> Self {
         Self {
-            body: value,
-            method: Method::Get,
-            uri: Uri::default(),
+            request: HttpRequest::new(value),
         }
     }
 
     pub fn body(&self) -> &T {
-        &self.body
+        self.request.body()
     }
 
     // TODO: Valuate if this will keep this fn or move to an from_parts style
@@ -90,24 +84,34 @@ impl<T> Request<T> {
         self,
         callback: impl FnOnce(T) -> Result<BodyType>,
     ) -> Result<Request<BodyType>> {
-        let body = self.body;
-        callback(body).map(Request::<BodyType>::new)
+        let (parts, body) = self.request.into_parts();
+        callback(body).map(|body| Request {
+            request: HttpRequest::from_parts(parts, body),
+        })
     }
 
     pub fn method(&self) -> &Method {
-        &self.method
+        self.request.method()
     }
 
     pub fn method_mut(&mut self) -> &mut Method {
-        &mut self.method
+        self.request.method_mut()
     }
 
     pub fn uri(&self) -> &Uri {
-        &self.uri
+        self.request.uri()
     }
 
     pub fn uri_mut(&mut self) -> &mut Uri {
-        &mut self.uri
+        self.request.uri_mut()
+    }
+}
+
+impl Request<()> {
+    pub fn builder() -> Builder {
+        Builder {
+            builder: HttpBuilder::new(),
+        }
     }
 }
 
@@ -254,6 +258,7 @@ where
 pub struct Json<T>(PhantomData<T>);
 
 impl<T> Json<T> {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self(PhantomData)
     }
@@ -327,7 +332,7 @@ mod tests {
     use async_std_test::async_test;
     use serde::{Deserialize, Serialize};
 
-    use crate::handler::{Json, Method, Uri};
+    use crate::handler::Json;
 
     use super::{encapsulate_runner, Request, Response};
 
@@ -366,12 +371,9 @@ mod tests {
     #[async_test]
     async fn test_simple_handler_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(simple_handler, &Json::new(), &Json::new());
-        let b = a(Request {
-            body: serde_json::json!({ "field": "South of the border" }).to_string(),
-            uri: Uri::default(),
-            method: Method::Get,
-        })
-        .await;
+        let c = Request::builder()
+            .body(serde_json::json!({ "field": "South of the border" }).to_string());
+        let b = a(c).await;
 
         assert_eq!(
             b.body().as_str(),
@@ -384,12 +386,9 @@ mod tests {
     #[async_test]
     async fn test_unit_handler_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(unit_handler, &(), &Json::new());
-        let b = a(Request {
-            body: serde_json::json!({ "field": "South of the border" }).to_string(),
-            uri: Uri::default(),
-            method: Method::Get,
-        })
-        .await;
+        let c = Request::builder()
+            .body(serde_json::json!({ "field": "South of the border" }).to_string());
+        let b = a(c).await;
 
         let expected_field_result = "HOPE - NF";
 
@@ -404,12 +403,8 @@ mod tests {
     #[async_test]
     async fn test_simple_handler_with_body_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(simple_handler_with_body, &Json::new(), &Json::new());
-        let b = a(Request {
-            body: serde_json::json!({ "field": "So Good" }).to_string(),
-            uri: Uri::default(),
-            method: Method::Get,
-        })
-        .await;
+        let c = Request::builder().body(serde_json::json!({ "field": "So Good" }).to_string());
+        let b = a(c).await;
 
         let expected_field_result = "So Good - Halsey";
 
@@ -428,12 +423,8 @@ mod tests {
             &Json::new(),
             &Json::new(),
         );
-        let b = a(Request {
-            body: serde_json::json!({ "field": "Sharks" }).to_string(),
-            uri: Uri::default(),
-            method: Method::Get,
-        })
-        .await;
+        let c = Request::builder().body(serde_json::json!({ "field": "Sharks" }).to_string());
+        let b = a(c).await;
 
         let expected_field_result = "Sharks - Imagine Dragons";
 
