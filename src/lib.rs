@@ -38,22 +38,23 @@ impl<'a> Server<'a> {
         Serializer: 'static,
     {
         match method {
-            Method::Get => self.get.insert(
+            Method::GET => self.get.insert(
                 path,
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
-            Method::Put => self.put.insert(
+            Method::PUT => self.put.insert(
                 path,
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
-            Method::Delete => self.delete.insert(
+            Method::DELETE => self.delete.insert(
                 path,
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
-            Method::Post => self.post.insert(
+            Method::POST => self.post.insert(
                 path,
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
+            _ => (),
         }
     }
 
@@ -70,7 +71,7 @@ impl<'a> Server<'a> {
         Deserializer: 'static,
         Serializer: 'static,
     {
-        self.add_handler(Method::Get, path, handler, deserializer, serializer)
+        self.add_handler(Method::GET, path, handler, deserializer, serializer)
     }
 
     pub fn post<FnIn, FnOut, Deserializer, Serializer, R>(
@@ -86,7 +87,7 @@ impl<'a> Server<'a> {
         Deserializer: 'static,
         Serializer: 'static,
     {
-        self.add_handler(Method::Post, path, handler, deserializer, serializer)
+        self.add_handler(Method::POST, path, handler, deserializer, serializer)
     }
 
     pub fn put<FnIn, FnOut, Deserializer, Serializer, R>(
@@ -102,7 +103,7 @@ impl<'a> Server<'a> {
         Deserializer: 'static,
         Serializer: 'static,
     {
-        self.add_handler(Method::Put, path, handler, deserializer, serializer)
+        self.add_handler(Method::PUT, path, handler, deserializer, serializer)
     }
 
     pub fn delete<FnIn, FnOut, Deserializer, Serializer, R>(
@@ -118,7 +119,7 @@ impl<'a> Server<'a> {
         Deserializer: 'static,
         Serializer: 'static,
     {
-        self.add_handler(Method::Get, path, handler, deserializer, serializer)
+        self.add_handler(Method::DELETE, path, handler, deserializer, serializer)
     }
 
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
@@ -171,12 +172,14 @@ impl<'a> Server<'a> {
         }
     }
 
+    #[allow(dead_code)]
     fn find_handler(&'a self, method: &Method, path: &'a str) -> Option<RefHandler<'a>> {
-        match method {
-            Method::Get => self.get.get(path),
-            Method::Put => self.put.get(path),
-            Method::Post => self.post.get(path),
-            Method::Delete => self.delete.get(path),
+        match *method {
+            Method::GET => self.get.get(path),
+            Method::PUT => self.put.get(path),
+            Method::POST => self.post.get(path),
+            Method::DELETE => self.delete.get(path),
+            _ => None,
         }
     }
 }
@@ -218,15 +221,16 @@ mod tests {
         let mut server = Server::new();
 
         server.add_handler(
-            Method::Get,
+            Method::GET,
             "/aaaa/bbbb",
             test_handler_with_req_and_res,
             &Json::new(),
             &String::from(""),
         );
 
-        let mut request = Request::new(serde_json::json!({ "correct": false }).to_string());
-        *request.uri_mut().path_mut() = String::from("/aaaa/bbbb");
+        let request = Request::builder()
+            .uri("/aaaa/bbbb")
+            .body(serde_json::json!({ "correct": false }).to_string());
 
         let response = run_test(&server, request).await;
 
@@ -252,32 +256,34 @@ mod tests {
         let req_body = serde_json::json!({ "correct": false }).to_string();
         let expected_res_body = serde_json::json!({ "correct": true }).to_string();
 
-        let mut request = Request::new(req_body.clone());
-        *request.uri_mut().path_mut() = String::from("/test/all");
+        let request = Request::builder().uri("/test/all").body(req_body.clone());
 
         let response = run_test(&server, request).await;
 
         assert_eq!(*response.body(), expected_res_body.clone());
 
-        let mut request = Request::new(req_body.clone());
-        *request.method_mut() = Method::Post;
-        *request.uri_mut().path_mut() = String::from("/test/all");
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::POST)
+            .body(req_body.clone());
 
         let response = run_test(&server, request).await;
 
         assert_eq!(*response.body(), expected_res_body.clone());
 
-        let mut request = Request::new(req_body.clone());
-        *request.method_mut() = Method::Put;
-        *request.uri_mut().path_mut() = String::from("/test/all");
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::PUT)
+            .body(req_body.clone());
 
         let response = run_test(&server, request).await;
 
         assert_eq!(*response.body(), expected_res_body.clone());
 
-        let mut request = Request::new(req_body.clone());
-        *request.method_mut() = Method::Delete;
-        *request.uri_mut().path_mut() = String::from("/test/all");
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::DELETE)
+            .body(req_body.clone());
 
         let response = run_test(&server, request).await;
 
