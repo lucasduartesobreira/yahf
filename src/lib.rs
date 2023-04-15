@@ -1,9 +1,12 @@
 mod error;
 mod handle_selector;
 mod handler;
+mod request;
+mod response;
 
-use crate::handler::{encapsulate_runner, Method, RefHandler, Runner};
+use crate::handler::{encapsulate_runner, RefHandler, Runner};
 use handle_selector::HandlerSelect;
+use request::Method;
 
 #[derive(Default)]
 pub struct Server<'a> {
@@ -191,7 +194,9 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use crate::{
-        handler::{GenericResponse, Json, Method, Request, Response},
+        handler::{GenericResponse, Json},
+        request::{Method, Request},
+        response::Response,
         Server,
     };
 
