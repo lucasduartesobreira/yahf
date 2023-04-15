@@ -13,18 +13,18 @@ pub type RefHandler<'a> =
     &'a dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse>>>;
 
 #[derive(Debug)]
-pub struct SerdeError {
+pub struct Error {
     body: String,
 }
 
-impl SerdeError {
+impl Error {
     pub fn new(body: String) -> Self {
         Self { body }
     }
 }
 
-impl From<SerdeError> for GenericResponse {
-    fn from(val: SerdeError) -> Self {
+impl From<Error> for GenericResponse {
+    fn from(val: Error) -> Self {
         GenericResponse::new(val.body)
     }
 }
@@ -66,7 +66,7 @@ impl Builder {
     }
 }
 
-type Result<T> = std::result::Result<T, SerdeError>;
+type Result<T> = std::result::Result<T, Error>;
 
 impl<T> Request<T> {
     pub fn new(value: T) -> Self {
@@ -274,7 +274,7 @@ where
     where
         Self: std::marker::Sized,
     {
-        serde_json::from_str(content).map_err(|err| SerdeError {
+        serde_json::from_str(content).map_err(|err| Error {
             body: err.to_string(),
         })
     }
@@ -287,7 +287,7 @@ where
     type Item = T;
 
     fn serialize(content: &Self::Item) -> Result<String> {
-        serde_json::to_string(content).map_err(|err| SerdeError {
+        serde_json::to_string(content).map_err(|err| Error {
             body: err.to_string(),
         })
     }
