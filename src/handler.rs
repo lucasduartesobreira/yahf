@@ -228,6 +228,12 @@ mod tests {
         Response::new(SomeBodyType { field: new_field })
     }
 
+    async fn unit_handler_with_response_body() -> SomeBodyType {
+        let new_field = String::from("HOPE - NF");
+
+        SomeBodyType { field: new_field }
+    }
+
     async fn simple_handler_with_body(input: SomeBodyType) -> Response<SomeBodyType> {
         let mut new_field = input.field;
         new_field.push_str(" - Halsey");
@@ -260,6 +266,23 @@ mod tests {
     #[async_test]
     async fn test_unit_handler_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(unit_handler, &(), &Json::new());
+        let c = Request::builder()
+            .body(serde_json::json!({ "field": "South of the border" }).to_string());
+        let b = a(c).await;
+
+        let expected_field_result = "HOPE - NF";
+
+        assert_eq!(
+            b.body().as_str(),
+            serde_json::json!({ "field": expected_field_result }).to_string()
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_unit_handler_with_response_body_implements_runner() -> std::io::Result<()> {
+        let a = encapsulate_runner(unit_handler_with_response_body, &(), &Json::new());
         let c = Request::builder()
             .body(serde_json::json!({ "field": "South of the border" }).to_string());
         let b = a(c).await;
