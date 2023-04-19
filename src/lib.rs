@@ -14,6 +14,11 @@ pub struct Server<'a> {
     put: HandlerSelect<'a>,
     delete: HandlerSelect<'a>,
     post: HandlerSelect<'a>,
+    trace: HandlerSelect<'a>,
+    options: HandlerSelect<'a>,
+    connect: HandlerSelect<'a>,
+    patch: HandlerSelect<'a>,
+    head: HandlerSelect<'a>,
 }
 
 impl<'a> Server<'a> {
@@ -23,6 +28,11 @@ impl<'a> Server<'a> {
             put: HandlerSelect::new(),
             delete: HandlerSelect::new(),
             post: HandlerSelect::new(),
+            trace: HandlerSelect::new(),
+            options: HandlerSelect::new(),
+            connect: HandlerSelect::new(),
+            patch: HandlerSelect::new(),
+            head: HandlerSelect::new(),
         }
     }
 
@@ -54,6 +64,26 @@ impl<'a> Server<'a> {
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
             Method::POST => self.post.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::TRACE => self.trace.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::OPTIONS => self.options.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::CONNECT => self.connect.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::PATCH => self.patch.insert(
+                path,
+                Box::new(encapsulate_runner(handler, deserializer, serializer)),
+            ),
+            Method::HEAD => self.head.insert(
                 path,
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
@@ -125,6 +155,86 @@ impl<'a> Server<'a> {
         self.add_handler(Method::DELETE, path, handler, deserializer, serializer)
     }
 
+    pub fn trace<FnIn, FnOut, Deserializer, Serializer, R>(
+        &mut self,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        self.add_handler(Method::TRACE, path, handler, deserializer, serializer)
+    }
+
+    pub fn options<FnIn, FnOut, Deserializer, Serializer, R>(
+        &mut self,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        self.add_handler(Method::OPTIONS, path, handler, deserializer, serializer)
+    }
+
+    pub fn connect<FnIn, FnOut, Deserializer, Serializer, R>(
+        &mut self,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        self.add_handler(Method::CONNECT, path, handler, deserializer, serializer)
+    }
+
+    pub fn patch<FnIn, FnOut, Deserializer, Serializer, R>(
+        &mut self,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        self.add_handler(Method::PATCH, path, handler, deserializer, serializer)
+    }
+
+    pub fn head<FnIn, FnOut, Deserializer, Serializer, R>(
+        &mut self,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        self.add_handler(Method::HEAD, path, handler, deserializer, serializer)
+    }
+
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         path: &'static str,
@@ -170,6 +280,46 @@ impl<'a> Server<'a> {
             );
             self.delete.insert(
                 path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.trace.insert(
+                path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.options.insert(
+                path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.patch.insert(
+                path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.head.insert(
+                path,
+                Box::new(encapsulate_runner(
+                    handler.clone(),
+                    deserializer,
+                    serializer,
+                )),
+            );
+            self.connect.insert(
+                path,
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             );
         }
@@ -182,6 +332,11 @@ impl<'a> Server<'a> {
             Method::PUT => self.put.get(path),
             Method::POST => self.post.get(path),
             Method::DELETE => self.delete.get(path),
+            Method::TRACE => self.trace.get(path),
+            Method::OPTIONS => self.options.get(path),
+            Method::CONNECT => self.connect.get(path),
+            Method::PATCH => self.patch.get(path),
+            Method::HEAD => self.head.get(path),
             _ => None,
         }
     }
@@ -248,7 +403,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_all_servers() -> std::io::Result<()> {
+    async fn test_server_fn_all() -> std::io::Result<()> {
         let mut server = Server::new();
 
         server.all(
@@ -288,6 +443,51 @@ mod tests {
         let request = Request::builder()
             .uri("/test/all")
             .method(Method::DELETE)
+            .body(req_body.clone());
+
+        let response = run_test(&server, request).await;
+
+        assert_eq!(*response.body(), expected_res_body.clone());
+
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::TRACE)
+            .body(req_body.clone());
+
+        let response = run_test(&server, request).await;
+
+        assert_eq!(*response.body(), expected_res_body.clone());
+
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::OPTIONS)
+            .body(req_body.clone());
+
+        let response = run_test(&server, request).await;
+
+        assert_eq!(*response.body(), expected_res_body.clone());
+
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::PATCH)
+            .body(req_body.clone());
+
+        let response = run_test(&server, request).await;
+
+        assert_eq!(*response.body(), expected_res_body.clone());
+
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::CONNECT)
+            .body(req_body.clone());
+
+        let response = run_test(&server, request).await;
+
+        assert_eq!(*response.body(), expected_res_body.clone());
+
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::HEAD)
             .body(req_body.clone());
 
         let response = run_test(&server, request).await;
