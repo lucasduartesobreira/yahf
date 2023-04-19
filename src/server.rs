@@ -324,7 +324,7 @@ impl<'a> Server<'a> {
     }
 
     #[allow(dead_code)]
-    fn find_handler(&'a self, method: &Method, path: &'a str) -> Option<RefHandler<'a>> {
+    fn find_handler(&'a self, method: &Method, path: &str) -> Option<RefHandler<'a>> {
         match *method {
             Method::GET => self.get.get(path),
             Method::PUT => self.put.get(path),
