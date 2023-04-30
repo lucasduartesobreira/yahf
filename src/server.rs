@@ -1,9 +1,20 @@
 use crate::{
     handle_selector,
     handler::{encapsulate_runner, RefHandler, Runner},
-    request,
+    request::{self, Request, Uri},
 };
+use async_std::{
+    io::{BufReader, WriteExt},
+    net::TcpStream,
+    task,
+};
+use async_std::{
+    net::{TcpListener, ToSocketAddrs},
+    stream::StreamExt,
+};
+use futures::{AsyncBufReadExt, AsyncRead, AsyncWrite};
 use handle_selector::HandlerSelect;
+
 use request::Method;
 
 #[derive(Default)]
@@ -323,8 +334,7 @@ impl<'a> Server<'a> {
         }
     }
 
-    #[allow(dead_code)]
-    fn find_handler(&'a self, method: &Method, path: &str) -> Option<RefHandler<'a>> {
+    fn find_handler(&self, method: &Method, path: &str) -> Option<RefHandler<'_>> {
         match *method {
             Method::GET => self.get.get(path),
             Method::PUT => self.put.get(path),
@@ -338,10 +348,121 @@ impl<'a> Server<'a> {
             _ => None,
         }
     }
+
+    pub fn listen<A: ToSocketAddrs>(&'static self, addr: A) -> ListenResult<()> {
+        task::block_on(accept_loop(self, addr))
+    }
+}
+type ListenResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
+async fn accept_loop(server: &'static Server<'_>, addr: impl ToSocketAddrs) -> ListenResult<()> {
+    let listener = TcpListener::bind(addr).await.unwrap();
+    let mut incoming = listener.incoming();
+
+    while let Some(stream) = incoming.next().await {
+        let stream = stream?;
+        handle_stream(server, stream);
+    }
+    Ok(())
+}
+
+fn handle_stream(
+    server: &'static Server<'_>,
+    _stream: TcpStream,
+) -> async_std::task::JoinHandle<()> {
+    task::spawn(async move {
+        if let Err(e) = connection_loop(server, _stream).await {
+            eprintln!("{}", e)
+        }
+    })
+}
+
+async fn connection_loop(
+    server: &Server<'_>,
+    mut stream: impl AsyncRead + AsyncWrite + Unpin,
+) -> ListenResult<()> {
+    let buf_reader = BufReader::new(&mut stream);
+    let mut lines = buf_reader.lines();
+    let first_line = lines.next().await;
+
+    let request_builder = Request::builder();
+    let fl = match first_line {
+        Some(first_line) => first_line?,
+        None => Err("Fuck this")?,
+    };
+
+    let mut splitted_fl = fl.split(' ');
+    let method = match splitted_fl.next() {
+        Some(mtd) => Method::try_from(mtd)?,
+        None => Err("Wrong request structure")?,
+    };
+    let request_builder = request_builder.method(method);
+
+    let uri = match splitted_fl.next() {
+        Some(mtd) => Uri::try_from(mtd)?,
+        None => Err("Wrong request structure")?,
+    };
+    let request_builder = request_builder.uri(uri);
+
+    match splitted_fl.next() {
+        Some("HTTP/1.1") => (),
+        _ => Err("Wrong request structure")?,
+    };
+
+    let mut request_with_headers = request_builder;
+
+    while let Some(line) = lines.next().await {
+        let line = line?;
+        if line.is_empty() {
+            break;
+        }
+
+        let splitted_header = line.split_once(':');
+        match splitted_header {
+            Some((header, value)) => {
+                request_with_headers = request_with_headers.header(header.trim(), value.trim());
+            }
+            None => Err("Wrong header format")?,
+        }
+    }
+
+    let mut body_string = String::with_capacity(100);
+    while let Some(line) = lines.next().await {
+        let line = line?;
+        body_string.push_str(line.as_str());
+    }
+
+    let request = request_with_headers.body(body_string);
+
+    let handler = server.find_handler(request.method(), request.uri().path());
+    let handler = match handler {
+        Some(handler) => handler,
+        None => Err("Not found")?,
+    };
+
+    let response = handler(request).await;
+
+    let response_string = format!(
+        "HTTP/1.1 {} {}\r\n{}\r\n{}",
+        response.status().as_u16(),
+        response.status().canonical_reason().unwrap(),
+        response
+            .headers()
+            .into_iter()
+            .fold(String::new(), |mut acc, (name, value)| {
+                acc.push_str(format!("{}:{}\r\n", name, value.to_str().unwrap()).as_str());
+                acc
+            }),
+        response.body()
+    );
+
+    stream.write_all(response_string.as_bytes()).await?;
+    stream.flush().await?;
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
+mod test_add_handlers {
 
     use async_std_test::async_test;
     use serde::{Deserialize, Serialize};
@@ -363,7 +484,7 @@ mod tests {
         Response::new(serde_json::to_string(&TestStruct { correct: true }).unwrap())
     }
 
-    async fn run_test(server: &Server<'_>, req: Request<String>) -> GenericResponse {
+    async fn run_test(server: &Server<'static>, req: Request<String>) -> GenericResponse {
         let method = req.method();
 
         let path = req.uri().path().to_string();
@@ -493,6 +614,98 @@ mod tests {
 
         assert_eq!(*response.body(), expected_res_body.clone());
 
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test_listen {
+    use std::cmp::min;
+    use std::pin::Pin;
+
+    use async_std_test::async_test;
+    use futures::io::Error;
+    use futures::task::{Context, Poll};
+    use futures::{AsyncRead, AsyncWrite};
+    use serde::{Deserialize, Serialize};
+
+    use crate::response::Response;
+    use crate::server::connection_loop;
+    use crate::{handler::Json, request::Request, server::Server};
+
+    #[derive(Debug, Deserialize, Serialize, PartialEq)]
+    struct TestStruct {
+        correct: bool,
+    }
+
+    async fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> Response<TestStruct> {
+        Response::new(TestStruct { correct: true })
+    }
+
+    struct MockTcpStream {
+        read_data: Vec<u8>,
+        write_data: Vec<u8>,
+    }
+
+    impl AsyncRead for MockTcpStream {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _: &mut Context,
+            buf: &mut [u8],
+        ) -> Poll<Result<usize, Error>> {
+            let size: usize = min(self.read_data.len(), buf.len());
+            buf[..size].copy_from_slice(&self.read_data[..size]);
+            self.read_data = self.read_data.drain(size..).collect::<Vec<_>>();
+            Poll::Ready(Ok(size))
+        }
+    }
+
+    impl AsyncWrite for MockTcpStream {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut Context,
+            buf: &[u8],
+        ) -> Poll<Result<usize, Error>> {
+            let mut a = buf.to_vec();
+            self.write_data.append(&mut a);
+
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl Unpin for MockTcpStream {}
+
+    #[async_test]
+    async fn test_connection_loop() -> std::io::Result<()> {
+        let mut server = Server::new();
+        server.all(
+            "/aaaaa",
+            test_handler_with_req_and_res,
+            &Json::default(),
+            &Json::default(),
+        );
+
+        let input_bytes = "GET /aaaaa HTTP/1.1\r\n\r\n{\"correct\": false}";
+
+        let mut stream = MockTcpStream {
+            read_data: input_bytes.as_bytes().to_vec(),
+            write_data: Vec::new(),
+        };
+
+        connection_loop(&server, &mut stream).await.unwrap();
+
+        let expected_contents = "{\"correct\":true}";
+        let expected_response = format!("HTTP/1.1 200 OK\r\n\r\n{}", expected_contents);
+
+        assert!(stream.write_data.starts_with(expected_response.as_bytes()));
         Ok(())
     }
 }

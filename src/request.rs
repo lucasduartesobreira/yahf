@@ -4,6 +4,8 @@ pub type Method = http::Method;
 pub type Uri = http::Uri;
 pub type HttpRequest<T> = http::Request<T>;
 pub type HttpBuilder = http::request::Builder;
+pub type HttpHeaderName = http::HeaderName;
+pub type HttpHeaderValue = http::HeaderValue;
 
 pub struct Request<T> {
     request: HttpRequest<T>,
@@ -61,7 +63,7 @@ pub struct Builder {
 }
 
 impl Builder {
-    pub fn uri<T>(self, uri: T) -> Builder
+    pub fn uri<T>(self, uri: T) -> Self
     where
         Uri: TryFrom<T>,
         <Uri as TryFrom<T>>::Error: Into<http::Error>,
@@ -80,6 +82,18 @@ impl Builder {
     pub fn method(self, method: Method) -> Self {
         Self {
             builder: self.builder.method(method),
+        }
+    }
+
+    pub fn header<K, V>(self, key: K, value: V) -> Self
+    where
+        HttpHeaderName: TryFrom<K>,
+        <HttpHeaderName as TryFrom<K>>::Error: Into<http::Error>,
+        HttpHeaderValue: TryFrom<V>,
+        <HttpHeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+    {
+        Self {
+            builder: self.builder.header(key, value),
         }
     }
 }
