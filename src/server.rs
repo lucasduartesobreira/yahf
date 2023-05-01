@@ -752,4 +752,28 @@ mod test_connection_loop {
         assert!(stream.write_data.starts_with(expected_response.as_bytes()));
         Ok(())
     }
+
+    #[async_test]
+    async fn test_without_body() -> std::io::Result<()> {
+        let mut server = Server::new();
+        server.all(
+            "/",
+            || async { Response::new(TestStruct { correct: true }) },
+            &(),
+            &Json::default(),
+        );
+
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("www.example.com")
+            .body(String::new());
+
+        let response = Response::builder()
+            .status(200)
+            .body(serde_json::json!({"correct":true}).to_string());
+        let test_config = TestConfig { request, response };
+
+        run_test(&server, test_config).await;
+        Ok(())
+    }
 }
