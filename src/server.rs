@@ -702,7 +702,7 @@ mod test_connection_loop {
         let header = request
             .headers()
             .iter()
-            .fold(String::new(), |acc, (key, value)| {
+            .fold(String::from("\r\n"), |acc, (key, value)| {
                 format!("{}:{}\r\n{}", key, value.to_str().unwrap(), acc)
             });
         let body = request.body();
@@ -737,19 +737,17 @@ mod test_connection_loop {
             &Json::default(),
         );
 
-        let input_bytes = "GET /aaaaa HTTP/1.1\r\n\r\n{\"correct\": false}";
+        let request = Request::builder()
+            .uri("/aaaaa")
+            .method(Method::GET)
+            .body(serde_json::json!({"correct": false}).to_string());
+        let response = Response::builder()
+            .status(200)
+            .body(serde_json::json!({"correct": true}).to_string());
+        let test_config = TestConfig { request, response };
 
-        let mut stream = MockTcpStream {
-            read_data: input_bytes.as_bytes().to_vec(),
-            write_data: Vec::new(),
-        };
+        run_test(&server, test_config).await;
 
-        connection_loop(&server, &mut stream).await.unwrap();
-
-        let expected_contents = "{\"correct\":true}";
-        let expected_response = format!("HTTP/1.1 200 OK\r\n\r\n{}", expected_contents);
-
-        assert!(stream.write_data.starts_with(expected_response.as_bytes()));
         Ok(())
     }
 
