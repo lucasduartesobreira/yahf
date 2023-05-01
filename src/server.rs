@@ -461,8 +461,58 @@ async fn connection_loop(
     Ok(())
 }
 
+mod test_utils {
+    use std::cmp::min;
+    use std::pin::Pin;
+
+    use futures::io::Error;
+    use futures::task::{Context, Poll};
+    use futures::{AsyncRead, AsyncWrite};
+
+    pub struct MockTcpStream {
+        pub read_data: Vec<u8>,
+        pub write_data: Vec<u8>,
+    }
+
+    impl AsyncRead for MockTcpStream {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _: &mut Context,
+            buf: &mut [u8],
+        ) -> Poll<Result<usize, Error>> {
+            let size: usize = min(self.read_data.len(), buf.len());
+            buf[..size].copy_from_slice(&self.read_data[..size]);
+            self.read_data = self.read_data.drain(size..).collect::<Vec<_>>();
+            Poll::Ready(Ok(size))
+        }
+    }
+
+    impl AsyncWrite for MockTcpStream {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            _: &mut Context,
+            buf: &[u8],
+        ) -> Poll<Result<usize, Error>> {
+            let mut a = buf.to_vec();
+            self.write_data.append(&mut a);
+
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl Unpin for MockTcpStream {}
+}
+
 #[cfg(test)]
-mod test_add_handlers {
+mod test_server {
 
     use async_std_test::async_test;
     use serde::{Deserialize, Serialize};
@@ -619,18 +669,14 @@ mod test_add_handlers {
 }
 
 #[cfg(test)]
-mod test_listen {
-    use std::cmp::min;
-    use std::pin::Pin;
-
+mod test_connection_loop {
     use async_std_test::async_test;
-    use futures::io::Error;
-    use futures::task::{Context, Poll};
-    use futures::{AsyncRead, AsyncWrite};
     use serde::{Deserialize, Serialize};
 
+    use crate::request::Method;
     use crate::response::Response;
     use crate::server::connection_loop;
+    use crate::server::test_utils::MockTcpStream;
     use crate::{handler::Json, request::Request, server::Server};
 
     #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -642,46 +688,44 @@ mod test_listen {
         Response::new(TestStruct { correct: true })
     }
 
-    struct MockTcpStream {
-        read_data: Vec<u8>,
-        write_data: Vec<u8>,
+    struct TestConfig {
+        response: Response<String>,
+        request: Request<String>,
     }
 
-    impl AsyncRead for MockTcpStream {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            _: &mut Context,
-            buf: &mut [u8],
-        ) -> Poll<Result<usize, Error>> {
-            let size: usize = min(self.read_data.len(), buf.len());
-            buf[..size].copy_from_slice(&self.read_data[..size]);
-            self.read_data = self.read_data.drain(size..).collect::<Vec<_>>();
-            Poll::Ready(Ok(size))
-        }
+    async fn run_test(server: &Server<'_>, test_config: TestConfig) {
+        let request = test_config.request;
+        let response = test_config.response;
+        let method = request.method().to_string();
+        let uri = request.uri().to_string();
+        let ver = "HTTP/1.1";
+        let header = request
+            .headers()
+            .iter()
+            .fold(String::new(), |acc, (key, value)| {
+                format!("{}:{}\r\n{}", key, value.to_str().unwrap(), acc)
+            });
+        let body = request.body();
+        let input_request = format!("{} {} {}\r\n{}{}", method, uri, ver, header, body);
+        let mut stream = MockTcpStream {
+            read_data: input_request.into_bytes(),
+            write_data: vec![],
+        };
+
+        connection_loop(server, &mut stream).await.unwrap();
+
+        let expected_contents = response.body();
+        let expected_status_code = response.status().as_u16();
+        let expected_status_message = response.status().canonical_reason();
+        let expected_response = format!(
+            "HTTP/1.1 {} {}\r\n\r\n{}",
+            expected_status_code,
+            expected_status_message.unwrap(),
+            expected_contents
+        );
+
+        assert!(stream.write_data.starts_with(expected_response.as_bytes()));
     }
-
-    impl AsyncWrite for MockTcpStream {
-        fn poll_write(
-            mut self: Pin<&mut Self>,
-            _: &mut Context,
-            buf: &[u8],
-        ) -> Poll<Result<usize, Error>> {
-            let mut a = buf.to_vec();
-            self.write_data.append(&mut a);
-
-            Poll::Ready(Ok(buf.len()))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    impl Unpin for MockTcpStream {}
 
     #[async_test]
     async fn test_connection_loop() -> std::io::Result<()> {

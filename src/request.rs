@@ -6,6 +6,7 @@ pub type HttpRequest<T> = http::Request<T>;
 pub type HttpBuilder = http::request::Builder;
 pub type HttpHeaderName = http::HeaderName;
 pub type HttpHeaderValue = http::HeaderValue;
+pub type HttpHeaderMap<HeaderValue> = http::HeaderMap<HeaderValue>;
 
 pub struct Request<T> {
     request: HttpRequest<T>,
@@ -55,6 +56,10 @@ impl<T> Request<T> {
 
     pub fn uri_mut(&mut self) -> &mut Uri {
         self.request.uri_mut()
+    }
+
+    pub fn headers(&self) -> &HttpHeaderMap<HttpHeaderValue> {
+        self.request.headers()
     }
 }
 
