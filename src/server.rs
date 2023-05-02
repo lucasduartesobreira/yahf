@@ -666,6 +666,44 @@ mod test_server {
 
         Ok(())
     }
+
+    macro_rules! test_method {
+        ($sla:tt, $mtd:ident, $upper_mtd:ident) => {
+    #[async_test]
+    async fn $sla() -> std::io::Result<()> {
+        let mut server = Server::new();
+
+        server.$mtd(
+            "/test/all",
+            test_handler_with_req_and_res,
+            &Json::new(),
+            &String::new(),
+        );
+
+        let req_body = serde_json::json!({ "correct": false }).to_string();
+        let expected_res_body = serde_json::json!({ "correct": true }).to_string();
+
+        let request = Request::builder()
+            .uri("/test/all")
+            .method(Method::$upper_mtd)
+            .body(req_body.clone());
+
+        let response = run_test(&server, request).await;
+
+        assert_eq!(*response.body(), expected_res_body.clone());
+        Ok(())
+    }
+        };
+    }
+
+    test_method!(test_only_get, get, GET);
+    test_method!(test_only_post, post, POST);
+    test_method!(test_only_put, put, PUT);
+    test_method!(test_only_delete, delete, DELETE);
+    test_method!(test_only_trace, trace, TRACE);
+    test_method!(test_only_option, options, OPTIONS);
+    test_method!(test_only_connect, connect, CONNECT);
+    test_method!(test_only_head, head, HEAD);
 }
 
 #[cfg(test)]
@@ -688,12 +726,33 @@ mod test_connection_loop {
         Response::new(TestStruct { correct: true })
     }
 
+    async fn test_handler_unity_res() -> Response<TestStruct> {
+        Response::new(TestStruct { correct: true })
+    }
+
+    async fn test_handler_req_body_and_res(_req: TestStruct) -> Response<TestStruct> {
+        Response::new(TestStruct { correct: true })
+    }
+
+    async fn test_handler_with_req_and_res_body(_req: Request<TestStruct>) -> TestStruct {
+        TestStruct { correct: true }
+    }
+
+    async fn test_handler_unity_res_body() -> TestStruct {
+        TestStruct { correct: true }
+    }
+
+    async fn test_handler_req_body_and_res_body(_req: TestStruct) -> TestStruct {
+        TestStruct { correct: true }
+    }
+
     struct TestConfig {
         response: Response<String>,
         request: Request<String>,
     }
 
     async fn run_test(server: &Server<'_>, test_config: TestConfig) {
+        // TODO: Implement ToString for Request
         let request = test_config.request;
         let response = test_config.response;
         let method = request.method().to_string();
@@ -714,6 +773,7 @@ mod test_connection_loop {
 
         connection_loop(server, &mut stream).await.unwrap();
 
+        // TODO: Implement ToString for Response
         let expected_contents = response.body();
         let expected_status_code = response.status().as_u16();
         let expected_status_message = response.status().canonical_reason();
@@ -727,13 +787,15 @@ mod test_connection_loop {
         assert!(stream.write_data.starts_with(expected_response.as_bytes()));
     }
 
+    macro_rules! test_connection_loop {
+        ($test_name: tt, $fn: ident, $des: expr) => {
     #[async_test]
-    async fn test_connection_loop() -> std::io::Result<()> {
+    async fn $test_name() -> std::io::Result<()> {
         let mut server = Server::new();
         server.all(
             "/aaaaa",
-            test_handler_with_req_and_res,
-            &Json::default(),
+            $fn,
+            &$des,
             &Json::default(),
         );
 
@@ -751,27 +813,29 @@ mod test_connection_loop {
         Ok(())
     }
 
-    #[async_test]
-    async fn test_without_body() -> std::io::Result<()> {
-        let mut server = Server::new();
-        server.all(
-            "/",
-            || async { Response::new(TestStruct { correct: true }) },
-            &(),
-            &Json::default(),
-        );
-
-        let request = Request::builder()
-            .method(Method::GET)
-            .uri("www.example.com")
-            .body(String::new());
-
-        let response = Response::builder()
-            .status(200)
-            .body(serde_json::json!({"correct":true}).to_string());
-        let test_config = TestConfig { request, response };
-
-        run_test(&server, test_config).await;
-        Ok(())
+        };
     }
+
+    test_connection_loop!(
+        test_request_and_response,
+        test_handler_with_req_and_res,
+        Json::default()
+    );
+    test_connection_loop!(test_unity_response, test_handler_unity_res, ());
+    test_connection_loop!(
+        test_req_body_and_response,
+        test_handler_req_body_and_res,
+        Json::default()
+    );
+    test_connection_loop!(
+        test_req_and_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default()
+    );
+    test_connection_loop!(test_unity_res_body, test_handler_unity_res_body, ());
+    test_connection_loop!(
+        test_req_body_and_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default()
+    );
 }
