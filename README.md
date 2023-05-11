@@ -53,3 +53,29 @@ router.<method>("/path/goes/here", handler, RequestBodyDeserializer, ResponseBod
 ```
 
 Here both `Deserializer` and `Serializer` are structs with zero data. For more details look into the [#2]( https://github.com/lucasduartesobreira/yahf/pull/2 ).
+
+
+##### Router
+
+`Router` is the way to compose the structure, as it will allow to merge with other routers, this includes the `Server`. This is an example of what would be the usage of a `Router`:
+
+```rust
+let some_router: Router = Router::new();
+some_router.all('/user', /*Some handler*/, &(), &Json);
+
+let another_router: Router = Router::new();
+another_router:.all('/function', /*Some handler*/, &(), &String);
+
+let updated_server: Server = server.router(some_router)?.router(another_router)?;
+```
+
+There is one more thing, `Router` as we'll see it later, will be the way to apply a middleware to an set of routes.
+
+
+##### Server
+
+`Server` is the core structure of an application as everything around is needed to set the `Server` up. Mainly, after setting up, running the application it's simple as:
+
+```rust
+server.listen('/*The IpAddress to bind and start listen*/')
+```
