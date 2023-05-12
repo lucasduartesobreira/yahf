@@ -1,7 +1,7 @@
 use crate::{
     handle_selector,
     handler::{encapsulate_runner, RefHandler, Runner},
-    request::{self, Request, Uri},
+    request::{self, HttpHeaderName, HttpHeaderValue, Request, Uri},
 };
 use async_std::{
     io::{BufReader, WriteExt},
@@ -368,14 +368,20 @@ async fn accept_loop(server: &'static Server<'_>, addr: impl ToSocketAddrs) -> L
 
 fn handle_stream(
     server: &'static Server<'_>,
-    _stream: TcpStream,
+    mut stream: TcpStream,
 ) -> async_std::task::JoinHandle<()> {
     task::spawn(async move {
-        if let Err(e) = connection_loop(server, _stream).await {
-            eprintln!("{}", e)
+        if let Err(e) = connection_loop(server, &stream).await {
+            let formatted_error = format!("HTTP/1.1 {}", e);
+            stream.write(formatted_error.as_bytes());
+            eprintln!("{}", e);
         }
     })
 }
+
+const BAD_REQUEST: &str = "400 Bad Request";
+const NOT_FOUND: &str = "404 Not Found";
+const HTTP_VERSION_NOT_SUPPORTED: &str = "505 HTTP Version Not Supported";
 
 async fn connection_loop(
     server: &Server<'_>,
@@ -387,29 +393,48 @@ async fn connection_loop(
 
     let request_builder = Request::builder();
     let fl = match first_line {
-        Some(first_line) => first_line?,
-        None => Err("Fuck this")?,
+        Some(first_line) => first_line.map_err(|_| BAD_REQUEST)?,
+        None => Err(BAD_REQUEST)?,
     };
 
     let mut splitted_fl = fl.split(' ');
     let method = match splitted_fl.next() {
-        Some(mtd) => Method::try_from(mtd)?,
-        None => Err("Wrong request structure")?,
+        Some(mtd) => Method::try_from(mtd).map_err(|_| BAD_REQUEST)?,
+        None => Err(BAD_REQUEST)?,
     };
-    let request_builder = request_builder.method(method);
+
+    let method = match method {
+        Method::GET => method,
+        Method::PUT => method,
+        Method::POST => method,
+        Method::DELETE => method,
+        Method::OPTIONS => method,
+        Method::HEAD => method,
+        Method::TRACE => method,
+        Method::PATCH => method,
+        Method::CONNECT => method,
+        _ => Err(BAD_REQUEST)?,
+    };
+
+    println!("{}", method.as_str());
 
     let uri = match splitted_fl.next() {
-        Some(mtd) => Uri::try_from(mtd)?,
-        None => Err("Wrong request structure")?,
+        Some(mtd) => Uri::try_from(mtd).map_err(|_| BAD_REQUEST)?,
+        None => Err(BAD_REQUEST)?,
     };
-    let request_builder = request_builder.uri(uri);
 
     match splitted_fl.next() {
         Some("HTTP/1.1") => (),
-        _ => Err("Wrong request structure")?,
+        _ => Err(HTTP_VERSION_NOT_SUPPORTED)?,
     };
 
-    let mut request_with_headers = request_builder;
+    let handler = server.find_handler(&method, &uri.to_string());
+    let handler = match handler {
+        Some(handler) => handler,
+        None => Err(NOT_FOUND)?,
+    };
+
+    let mut request_builder = request_builder.method(method).uri(uri);
 
     while let Some(line) = lines.next().await {
         let line = line?;
@@ -420,9 +445,17 @@ async fn connection_loop(
         let splitted_header = line.split_once(':');
         match splitted_header {
             Some((header, value)) => {
-                request_with_headers = request_with_headers.header(header.trim(), value.trim());
+                match (
+                    HttpHeaderName::try_from(header.trim()),
+                    HttpHeaderValue::try_from(value.trim()),
+                ) {
+                    (Ok(header), Ok(value)) => {
+                        request_builder = request_builder.header(header, value);
+                    }
+                    _ => Err("400 Bad Request")?,
+                }
             }
-            None => Err("Wrong header format")?,
+            None => Err("400 Bad Request")?,
         }
     }
 
@@ -432,13 +465,7 @@ async fn connection_loop(
         body_string.push_str(line.as_str());
     }
 
-    let request = request_with_headers.body(body_string);
-
-    let handler = server.find_handler(request.method(), request.uri().path());
-    let handler = match handler {
-        Some(handler) => handler,
-        None => Err("Not found")?,
-    };
+    let request = request_builder.body(body_string);
 
     let response = handler(request).await;
 
@@ -837,5 +864,326 @@ mod test_connection_loop {
         test_req_body_and_res_body,
         test_handler_req_body_and_res_body,
         Json::default()
+    );
+
+    async fn test_for_error(server: &Server<'_>, request: String, response: String) {
+        // TODO: Implement ToString for Request
+        let mut stream = MockTcpStream {
+            read_data: request.into_bytes(),
+            write_data: vec![],
+        };
+
+        let error = connection_loop(server, &mut stream).await;
+
+        // TODO: Implement ToString for Response
+        println!("{:?}", error);
+        match error {
+            Ok(_) => assert!(stream.write_data.starts_with(response.as_bytes())),
+            Err(err) => assert!(err.to_string().starts_with(response.as_str())),
+        }
+    }
+
+    macro_rules! test_error_in_connection_loop {
+        ($test_name:ident, $fn: ident, $des: expr, $send:literal, $expected: literal) => {
+            #[async_test]
+            async fn $test_name() -> std::io::Result<()> {
+                let mut server = Server::new();
+                server.all("/aaaaa", $fn, &$des, &Json::default());
+
+                let request = $send.to_owned();
+                let response = $expected.to_owned();
+
+                test_for_error(&server, request, response).await;
+
+                Ok(())
+            }
+        };
+    }
+
+    test_error_in_connection_loop!(
+        test_no_payload_unity_res,
+        test_handler_unity_res,
+        (),
+        "",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_no_payload_unity_res_body,
+        test_handler_unity_res_body,
+        (),
+        "",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_no_payload_req_res,
+        test_handler_with_req_and_res,
+        Json::default(),
+        "",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_no_payload_req_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default(),
+        "",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_no_payload_req_body_res,
+        test_handler_req_body_and_res,
+        Json::default(),
+        "",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_no_payload_req_body_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default(),
+        "",
+        "400 Bad Request"
+    );
+
+    test_error_in_connection_loop!(
+        test_invalid_method_unity_res,
+        test_handler_unity_res,
+        (),
+        "INVALID / HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_method_unity_res_body,
+        test_handler_unity_res_body,
+        (),
+        "INVALID / HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_method_req_res,
+        test_handler_with_req_and_res,
+        Json::default(),
+        "INVALID / HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_method_req_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default(),
+        "INVALID / HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_method_req_body_res,
+        test_handler_req_body_and_res,
+        Json::default(),
+        "INVALID / HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_method_req_body_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default(),
+        "INVALID / HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+
+    test_error_in_connection_loop!(
+        test_invalid_uri_unity_res,
+        test_handler_unity_res,
+        (),
+        "GET https:// HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_uri_unity_res_body,
+        test_handler_unity_res_body,
+        (),
+        "GET https:// HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_uri_req_res,
+        test_handler_with_req_and_res,
+        Json::default(),
+        "GET https:// HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_uri_req_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default(),
+        "GET https:// HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_uri_req_body_res,
+        test_handler_req_body_and_res,
+        Json::default(),
+        "GET https:// HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_uri_req_body_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default(),
+        "GET https:// HTTP/1.1\r\n\r\n",
+        "400 Bad Request"
+    );
+
+    test_error_in_connection_loop!(
+        test_unimplemented_http_version_unity_res,
+        test_handler_unity_res,
+        (),
+        "GET / HTTP/2\r\n\r\n",
+        "505 HTTP Version Not Supported"
+    );
+    test_error_in_connection_loop!(
+        test_unimplemented_http_version_unity_res_body,
+        test_handler_unity_res_body,
+        (),
+        "GET / HTTP/2\r\n\r\n",
+        "505 HTTP Version Not Supported"
+    );
+    test_error_in_connection_loop!(
+        test_unimplemented_http_version_req_res,
+        test_handler_with_req_and_res,
+        Json::default(),
+        "GET / HTTP/2\r\n\r\n",
+        "505 HTTP Version Not Supported"
+    );
+    test_error_in_connection_loop!(
+        test_unimplemented_http_version_req_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default(),
+        "GET / HTTP/2\r\n\r\n",
+        "505 HTTP Version Not Supported"
+    );
+    test_error_in_connection_loop!(
+        test_unimplemented_http_version_req_body_res,
+        test_handler_req_body_and_res,
+        Json::default(),
+        "GET / HTTP/2\r\n\r\n",
+        "505 HTTP Version Not Supported"
+    );
+    test_error_in_connection_loop!(
+        test_unimplemented_http_version_req_body_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default(),
+        "GET / HTTP/2\r\n\r\n",
+        "505 HTTP Version Not Supported"
+    );
+
+    test_error_in_connection_loop!(
+        test_not_found_unity_res,
+        test_handler_unity_res,
+        (),
+        "GET / HTTP/1.1\r\n\r\n",
+        "404 Not Found"
+    );
+    test_error_in_connection_loop!(
+        test_not_found_unity_res_body,
+        test_handler_unity_res_body,
+        (),
+        "GET / HTTP/1.1\r\n\r\n",
+        "404 Not Found"
+    );
+    test_error_in_connection_loop!(
+        test_not_found_req_res,
+        test_handler_with_req_and_res,
+        Json::default(),
+        "GET / HTTP/1.1\r\n\r\n",
+        "404 Not Found"
+    );
+    test_error_in_connection_loop!(
+        test_not_found_req_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default(),
+        "GET / HTTP/1.1\r\n\r\n",
+        "404 Not Found"
+    );
+    test_error_in_connection_loop!(
+        test_not_found_req_body_res,
+        test_handler_req_body_and_res,
+        Json::default(),
+        "GET / HTTP/1.1\r\n\r\n",
+        "404 Not Found"
+    );
+    test_error_in_connection_loop!(
+        test_not_found_req_body_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default(),
+        "GET / HTTP/1.1\r\n\r\n",
+        "404 Not Found"
+    );
+
+    test_error_in_connection_loop!(
+        test_invalid_header_format_unity_res,
+        test_handler_unity_res,
+        (),
+        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_header_format_unity_res_body,
+        test_handler_unity_res_body,
+        (),
+        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_header_format_req_res,
+        test_handler_with_req_and_res,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_header_format_req_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_header_format_req_body_res,
+        test_handler_req_body_and_res,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
+        "400 Bad Request"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_header_format_req_body_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
+        "400 Bad Request"
+    );
+
+    test_error_in_connection_loop!(
+        test_invalid_body_serialization_req_res,
+        test_handler_with_req_and_res,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
+        "HTTP/1.1 422 Unprocessable Entity"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_body_serialization_req_res_body,
+        test_handler_with_req_and_res_body,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
+        "HTTP/1.1 422 Unprocessable Entity"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_body_serialization_req_body_res,
+        test_handler_req_body_and_res,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
+        "HTTP/1.1 422 Unprocessable Entity"
+    );
+    test_error_in_connection_loop!(
+        test_invalid_body_serialization_req_body_res_body,
+        test_handler_req_body_and_res_body,
+        Json::default(),
+        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
+        "HTTP/1.1 422 Unprocessable Entity"
     );
 }
