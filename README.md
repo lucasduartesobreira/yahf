@@ -79,3 +79,32 @@ There is one more thing, `Router` as we'll see it later, will be the way to appl
 ```rust
 server.listen('/*The IpAddress to bind and start listen*/')
 ```
+
+#### Middleware
+
+It'll be supported two types of middleware functions: `PreMiddleware` and `AfterMiddleware`
+
+##### PreMiddleware
+
+Apply transformations to `Request`:
+
+```rust
+async fn some_middleware(request: Request<String>) -> Request<String> { /*Function body*/ }
+
+
+// When building a `Router` or a `Server`
+let router = router.pre(some_middleware);
+```
+
+
+##### AfterMiddleware
+
+Apply transformations to `Response`:
+
+```rust
+async fn some_after_middleware(response: Response<String>) -> Response<String> { /*Function body*/}
+
+
+// When building a `Router` or a `Server`
+let router = router.after(some_middleware);
+```
