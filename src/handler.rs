@@ -9,10 +9,12 @@ use crate::{error::Error, request::Request, response::Response};
 type StandardBodyType = String;
 pub type GenericRequest = Request<StandardBodyType>;
 pub type GenericResponse = Response<StandardBodyType>;
-pub type BoxedHandler =
-    Box<dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse>>>>;
-pub type RefHandler<'a> =
-    &'a dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse>>>;
+pub type BoxedHandler = Box<
+    dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse> + Send>> + Sync + Send,
+>;
+pub type RefHandler<'a> = &'a (dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse> + Send>>
+         + Sync
+         + Send);
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -142,6 +144,12 @@ impl<T> Json<T> {
     }
 }
 
+impl<T> Default for Json<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> BodyDeserializer for Json<T>
 where
     T: DeserializeOwned,
@@ -179,7 +187,7 @@ pub fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
     _deserializer: &Deserializer,
     _serializer: &Serializer,
-) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Response<String>>>>
+) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Response<String>> + Send>> + Sync + Send
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     Deserializer: 'static,

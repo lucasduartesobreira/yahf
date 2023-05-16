@@ -40,7 +40,7 @@ impl<'a> HandlerSelect<'a> {
     }
 
     #[allow(dead_code)]
-    pub fn get(&self, path: &'a str) -> Option<RefHandler<'_>> {
+    pub fn get(&self, path: &str) -> Option<RefHandler<'_>> {
         let mut root = &self.root;
 
         for splitted_path in path.split('/').filter(|x| !x.is_empty()) {
