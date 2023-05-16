@@ -1,3 +1,5 @@
+use http::{HeaderMap, HeaderValue};
+
 use crate::handler::Result;
 
 pub type HttpResponse<T> = http::Response<T>;
@@ -58,5 +60,13 @@ impl<T> Response<T> {
         callback(body).map(|body| Response {
             response: HttpResponse::from_parts(parts, body),
         })
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.response.status()
+    }
+
+    pub fn headers(&self) -> &HeaderMap<HeaderValue> {
+        self.response.headers()
     }
 }
