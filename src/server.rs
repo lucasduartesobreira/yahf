@@ -442,6 +442,7 @@ async fn connection_loop(
     };
 
     let mut request_builder = request_builder.method(method).uri(uri);
+    let mut content_length = 0usize;
 
     while let Some(line) = lines.next().await {
         let line = line?;
@@ -451,6 +452,10 @@ async fn connection_loop(
 
         let splitted_header = line.split_once(':');
         match splitted_header {
+            Some((header, value)) if http::header::CONTENT_LENGTH == header => {
+                request_builder = request_builder.header("Content-Length", value);
+                content_length = value.trim().parse::<usize>().unwrap();
+            }
             Some((header, value)) => {
                 match (
                     HttpHeaderName::try_from(header.trim()),
@@ -466,10 +471,12 @@ async fn connection_loop(
         }
     }
 
-    let mut body_string = String::with_capacity(100);
-    while let Some(line) = lines.next().await {
-        let line = line?;
-        body_string.push_str(line.as_str());
+    let mut body_string = String::with_capacity(content_length);
+    while body_string.len() != content_length {
+        if let Some(line) = lines.next().await {
+            let line = line?;
+            body_string.push_str(line.as_str());
+        }
     }
 
     let request = request_builder.body(body_string);
@@ -834,14 +841,17 @@ mod test_connection_loop {
             &$des,
             &Json::default(),
         );
+        let req_body = serde_json::json!({"correct": false}).to_string();
+        let res_body = serde_json::json!({"correct": true}).to_string();
 
         let request = Request::builder()
             .uri("/aaaaa")
             .method(Method::GET)
-            .body(serde_json::json!({"correct": false}).to_string());
+            .header("Content-Length", req_body.len())
+            .body(req_body);
         let response = Response::builder()
             .status(200)
-            .body(serde_json::json!({"correct": true}).to_string());
+            .body(res_body);
         let test_config = TestConfig { request, response };
 
         let server = Arc::new(server);
