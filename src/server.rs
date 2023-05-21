@@ -1,3 +1,5 @@
+use std::{fmt::Display, sync::Arc};
+
 use crate::{
     handle_selector,
     handler::{encapsulate_runner, RefHandler, Runner},
@@ -30,7 +32,7 @@ pub struct Server<'a> {
     head: HandlerSelect<'a>,
 }
 
-impl<'a> Server<'a> {
+impl<'a: 'static> Server<'a> {
     pub fn new() -> Self {
         Self {
             get: HandlerSelect::new(),
@@ -349,29 +351,36 @@ impl<'a> Server<'a> {
         }
     }
 
-    pub fn listen<A: ToSocketAddrs>(&'static self, addr: A) -> ListenResult<()> {
+    pub fn listen<A: ToSocketAddrs + Display>(self, addr: A) -> ListenResult<()> {
         task::block_on(accept_loop(self, addr))
     }
 }
 type ListenResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-async fn accept_loop(server: &'static Server<'_>, addr: impl ToSocketAddrs) -> ListenResult<()> {
+async fn accept_loop(
+    server: Server<'static>,
+    addr: impl ToSocketAddrs + Display,
+) -> ListenResult<()> {
+    let server = Arc::new(server);
     let listener = TcpListener::bind(addr).await.unwrap();
+    println!("Start listening on {}", listener.local_addr().unwrap());
     let mut incoming = listener.incoming();
 
     while let Some(stream) = incoming.next().await {
         let stream = stream?;
-        handle_stream(server, stream);
+        println!("Accepting from: {}", stream.peer_addr()?);
+        handle_stream(server.clone(), stream);
     }
     Ok(())
 }
 
 fn handle_stream(
-    server: &'static Server<'_>,
+    server: Arc<Server<'static>>,
     mut stream: TcpStream,
 ) -> async_std::task::JoinHandle<()> {
     task::spawn(async move {
-        if let Err(e) = connection_loop(server, &stream).await {
+        let fut = connection_loop(server, &stream);
+        if let Err(e) = fut.await {
             let formatted_error = format!("HTTP/1.1 {}", e);
             stream.write(formatted_error.as_bytes());
             eprintln!("{}", e);
@@ -384,7 +393,7 @@ const NOT_FOUND: &str = "404 Not Found";
 const HTTP_VERSION_NOT_SUPPORTED: &str = "505 HTTP Version Not Supported";
 
 async fn connection_loop(
-    server: &Server<'_>,
+    server: Arc<Server<'static>>,
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
 ) -> ListenResult<()> {
     let buf_reader = BufReader::new(&mut stream);
@@ -416,8 +425,6 @@ async fn connection_loop(
         _ => Err(BAD_REQUEST)?,
     };
 
-    println!("{}", method.as_str());
-
     let uri = match splitted_fl.next() {
         Some(mtd) => Uri::try_from(mtd).map_err(|_| BAD_REQUEST)?,
         None => Err(BAD_REQUEST)?,
@@ -435,6 +442,7 @@ async fn connection_loop(
     };
 
     let mut request_builder = request_builder.method(method).uri(uri);
+    let mut content_length = 0usize;
 
     while let Some(line) = lines.next().await {
         let line = line?;
@@ -444,6 +452,10 @@ async fn connection_loop(
 
         let splitted_header = line.split_once(':');
         match splitted_header {
+            Some((header, value)) if http::header::CONTENT_LENGTH == header => {
+                request_builder = request_builder.header("Content-Length", value);
+                content_length = value.trim().parse::<usize>().unwrap();
+            }
             Some((header, value)) => {
                 match (
                     HttpHeaderName::try_from(header.trim()),
@@ -459,10 +471,12 @@ async fn connection_loop(
         }
     }
 
-    let mut body_string = String::with_capacity(100);
-    while let Some(line) = lines.next().await {
-        let line = line?;
-        body_string.push_str(line.as_str());
+    let mut body_string = String::with_capacity(content_length);
+    while body_string.len() != content_length {
+        if let Some(line) = lines.next().await {
+            let line = line?;
+            body_string.push_str(line.as_str());
+        }
     }
 
     let request = request_builder.body(body_string);
@@ -735,6 +749,8 @@ mod test_server {
 
 #[cfg(test)]
 mod test_connection_loop {
+    use std::sync::Arc;
+
     use async_std_test::async_test;
     use serde::{Deserialize, Serialize};
 
@@ -778,7 +794,7 @@ mod test_connection_loop {
         request: Request<String>,
     }
 
-    async fn run_test(server: &Server<'_>, test_config: TestConfig) {
+    async fn run_test(server: Arc<Server<'static>>, test_config: TestConfig) {
         // TODO: Implement ToString for Request
         let request = test_config.request;
         let response = test_config.response;
@@ -825,17 +841,22 @@ mod test_connection_loop {
             &$des,
             &Json::default(),
         );
+        let req_body = serde_json::json!({"correct": false}).to_string();
+        let res_body = serde_json::json!({"correct": true}).to_string();
 
         let request = Request::builder()
             .uri("/aaaaa")
             .method(Method::GET)
-            .body(serde_json::json!({"correct": false}).to_string());
+            .header("Content-Length", req_body.len())
+            .body(req_body);
         let response = Response::builder()
             .status(200)
-            .body(serde_json::json!({"correct": true}).to_string());
+            .body(res_body);
         let test_config = TestConfig { request, response };
 
-        run_test(&server, test_config).await;
+        let server = Arc::new(server);
+
+        run_test(server, test_config).await;
 
         Ok(())
     }
@@ -866,7 +887,7 @@ mod test_connection_loop {
         Json::default()
     );
 
-    async fn test_for_error(server: &Server<'_>, request: String, response: String) {
+    async fn test_for_error(server: Arc<Server<'static>>, request: String, response: String) {
         // TODO: Implement ToString for Request
         let mut stream = MockTcpStream {
             read_data: request.into_bytes(),
@@ -890,10 +911,12 @@ mod test_connection_loop {
                 let mut server = Server::new();
                 server.all("/aaaaa", $fn, &$des, &Json::default());
 
+                let server = Arc::new(server);
+
                 let request = $send.to_owned();
                 let response = $expected.to_owned();
 
-                test_for_error(&server, request, response).await;
+                test_for_error(server.clone(), request, response).await;
 
                 Ok(())
             }
