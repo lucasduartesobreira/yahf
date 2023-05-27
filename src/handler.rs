@@ -175,6 +175,17 @@ where
     }
 }
 
+impl BodyDeserializer for String {
+    type Item = String;
+
+    fn deserialize(_content: &StandardBodyType) -> Result<Self::Item>
+    where
+        Self: std::marker::Sized,
+    {
+        Ok(_content.to_owned())
+    }
+}
+
 impl BodySerializer for String {
     type Item = String;
 
@@ -183,11 +194,11 @@ impl BodySerializer for String {
     }
 }
 
-pub fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
+pub(crate) fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
     _deserializer: &Deserializer,
     _serializer: &Serializer,
-) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Response<String>> + Send>> + Sync + Send
+) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Response<String>> + Send>> + Sync
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     Deserializer: 'static,
