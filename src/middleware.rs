@@ -2,11 +2,7 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use crate::{
-    handler::{encapsulate_runner, BoxedHandler, Runner},
-    request::Request,
-    response::Response,
-};
+use crate::{handler::Runner, request::Request, response::Response};
 
 pub trait PreMiddleware: Send + Sync + Clone {
     type FutCallResponse;
@@ -143,11 +139,11 @@ where
         _runner: R,
         _deserializer: &Deserializer,
         _serializer: &Serializer,
-    ) -> BoxedHandler
+    ) -> impl Runner<(Request<String>, String), (Response<String>, String)>
     where
         R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     {
-        let handler = move |req| {
+        move |req| {
             let pre = self.pre.clone();
             let after = self.after.clone();
             let runner = _runner.clone();
@@ -157,13 +153,7 @@ where
                 let res_updated = after.call(a);
                 res_updated.await
             }
-        };
-
-        Box::new(encapsulate_runner(
-            handler,
-            &String::with_capacity(0),
-            &String::with_capacity(0),
-        ))
+        }
     }
 }
 
@@ -173,7 +163,9 @@ mod test {
 
     use async_std_test::async_test;
 
-    use crate::{middleware::MiddlewareFactory, request::Request, response::Response};
+    use crate::{
+        handler::Runner, middleware::MiddlewareFactory, request::Request, response::Response,
+    };
 
     async fn pre_middleware(_req: Request<String>) -> Request<String> {
         Request::new(format!("{}\nFrom middleware", _req.body()))
@@ -201,7 +193,9 @@ mod test {
             &String::with_capacity(0),
         );
 
-        let resp = updated_handler(Request::new("From pure request".to_owned())).await;
+        let resp = updated_handler
+            .call_runner(Request::new("From pure request".to_owned()))
+            .await;
 
         println!("{}", resp.body());
 
