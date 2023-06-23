@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use futures::Future;
 
-use crate::{handler::Runner, request::Request, response::Response};
+use crate::{error::Error, handler::Runner, request::Request, response::Response};
 
-type ControlFlow<T> = Result<T, Response<String>>;
+type ControlFlow<T> = Result<T, Error>;
 
 pub trait PreMiddleware: Send + Sync + Clone {
     type FutCallResponse;
@@ -14,12 +14,6 @@ pub trait PreMiddleware: Send + Sync + Clone {
 impl From<Request<String>> for ControlFlow<Request<String>> {
     fn from(val: Request<String>) -> Self {
         Ok(val)
-    }
-}
-
-impl From<Response<String>> for ControlFlow<Request<String>> {
-    fn from(val: Response<String>) -> Self {
-        Err(val)
     }
 }
 
@@ -41,10 +35,17 @@ pub trait AfterMiddleware: Send + Sync + Clone {
     fn call(&self, req: Response<String>) -> Self::FutCallResponse;
 }
 
-impl<MidFn, Fut> AfterMiddleware for MidFn
+impl From<Response<String>> for ControlFlow<Response<String>> {
+    fn from(val: Response<String>) -> Self {
+        Ok(val)
+    }
+}
+
+impl<MidFn, Fut, CF> AfterMiddleware for MidFn
 where
     MidFn: Fn(Response<String>) -> Fut + Send + Sync + Clone,
-    Fut: Future<Output = Response<String>>,
+    Fut: Future<Output = CF>,
+    CF: Into<ControlFlow<Response<String>>>,
 {
     type FutCallResponse = Fut;
     #[inline(always)]
@@ -79,32 +80,16 @@ impl MiddlewareFactory<(), ()> {
             after: Self::unit_after_middleware,
         }
     }
-
-    pub fn pre<F: Future<Output = Request<String>>, UPM: PreMiddleware<FutCallResponse = F>>(
-        self,
-        pre: UPM,
-    ) -> MiddlewareFactory<UPM, ()> {
-        MiddlewareFactory { pre, after: () }
-    }
-
-    pub fn after<
-        F: Future<Output = Response<String>>,
-        UAFM: AfterMiddleware<FutCallResponse = F>,
-    >(
-        self,
-        after: UAFM,
-    ) -> MiddlewareFactory<(), UAFM> {
-        MiddlewareFactory { pre: (), after }
-    }
 }
 
-impl<FPre, FAfter, F, FA, CF> MiddlewareFactory<FPre, FAfter>
+impl<FPre, FAfter, F, FA, CF, CFA> MiddlewareFactory<FPre, FAfter>
 where
     FPre: PreMiddleware<FutCallResponse = F> + 'static,
     FAfter: AfterMiddleware<FutCallResponse = FA> + 'static,
     F: Future<Output = CF> + Send,
     CF: Into<ControlFlow<Request<String>>> + Send,
-    FA: Future<Output = Response<String>> + Send,
+    CFA: Into<ControlFlow<Response<String>>> + Send,
+    FA: Future<Output = CFA> + Send,
 {
     #[inline(always)]
     pub fn pre<NewF: Future<Output = NewCF>, NewCF: Into<ControlFlow<Request<String>>>>(
@@ -121,7 +106,7 @@ where
 
                 match resp.into() {
                     Ok(req) => other_pre.call(req).await.into(),
-                    Err(resp) => resp.into(),
+                    Err(resp) => Err(resp),
                 }
             }
         };
@@ -133,18 +118,21 @@ where
     }
 
     #[inline(always)]
-    pub fn after<NewF: Future<Output = Response<String>>>(
+    pub fn after<NewF: Future<Output = NewCFA>, NewCFA: Into<ControlFlow<Response<String>>>>(
         self,
         other_after: &'static (impl AfterMiddleware<FutCallResponse = NewF> + Sync),
     ) -> MiddlewareFactory<
         FPre,
-        impl AfterMiddleware<FutCallResponse = impl Future<Output = Response<String>>>,
+        impl AfterMiddleware<FutCallResponse = impl Future<Output = ControlFlow<Response<String>>>>,
     > {
         let after = move |res| {
             let cloned_after_middleware = self.after.clone();
             async move {
                 let resp = cloned_after_middleware.call(res).await;
-                other_after.call(resp).await
+                match resp.into() {
+                    Ok(resp) => other_after.call(resp).await.into(),
+                    Err(resp) => Err(resp),
+                }
             }
         };
 
@@ -173,9 +161,15 @@ where
                     Ok(req) => {
                         let a = runner.call_runner(req).await;
                         let res_updated = after.call(a);
-                        res_updated.await
+                        let res_with_type: ControlFlow<Response<String>> =
+                            CFA::into(res_updated.await);
+
+                        match res_with_type {
+                            Ok(resp) => resp,
+                            Err(err) => err.into(),
+                        }
                     }
-                    Err(resp) => resp,
+                    Err(resp) => resp.into(),
                 }
             }
         }
@@ -189,7 +183,8 @@ mod test {
     use async_std_test::async_test;
 
     use crate::{
-        handler::Runner, middleware::MiddlewareFactory, request::Request, response::Response,
+        error::Error, handler::Runner, middleware::MiddlewareFactory, request::Request,
+        response::Response,
     };
 
     use super::ControlFlow;
@@ -201,7 +196,10 @@ mod test {
     async fn pre_middleware_short_circuiting(
         _req: Request<String>,
     ) -> ControlFlow<Request<String>> {
-        Err(Response::new("From middleware short-circuiting".to_owned()))
+        Err(Error::new(
+            "From middleware short-circuiting".to_owned(),
+            200,
+        ))
     }
 
     async fn test_handler(_req: Request<String>) -> Response<String> {
@@ -210,6 +208,15 @@ mod test {
 
     async fn after_middleware(res: Response<String>) -> Response<String> {
         Response::new(format!("{}\nFrom the after middleware", res.body()))
+    }
+
+    async fn after_middleware_short_circuiting(
+        res: Response<String>,
+    ) -> ControlFlow<Response<String>> {
+        Err(Error::new(
+            format!("{}\nFrom middleware short-circuiting", res.body()),
+            200,
+        ))
     }
 
     #[async_test]
@@ -240,6 +247,7 @@ mod test {
         let middleware = MiddlewareFactory::new();
 
         let middleware = middleware.pre(&pre_middleware_short_circuiting);
+        let middleware = middleware.after(&after_middleware);
         let arc_middleware = Arc::new(middleware);
 
         let updated_handler = arc_middleware.build(
@@ -253,6 +261,29 @@ mod test {
             .await;
 
         assert!(resp.body() == "From middleware short-circuiting");
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_after_middleware_with_short_circuit() -> std::io::Result<()> {
+        let middleware = MiddlewareFactory::new();
+
+        let middleware = middleware.pre(&pre_middleware);
+        let middleware = middleware.after(&after_middleware_short_circuiting);
+        let arc_middleware = Arc::new(middleware);
+
+        let updated_handler = arc_middleware.build(
+            test_handler,
+            &String::with_capacity(0),
+            &String::with_capacity(0),
+        );
+
+        let resp = updated_handler
+            .call_runner(Request::new("From pure request".to_owned()))
+            .await;
+
+        assert!(resp.body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
 
         Ok(())
     }
