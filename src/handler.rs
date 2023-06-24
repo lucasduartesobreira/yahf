@@ -91,7 +91,10 @@ where
 
 #[async_trait]
 pub trait Runner<Input, Output>: Clone + Send + Sync {
-    async fn call_runner(&self, run: Request<StandardBodyType>) -> Response<StandardBodyType>;
+    async fn call_runner(
+        &self,
+        run: Request<StandardBodyType>,
+    ) -> Result<Response<StandardBodyType>>;
 }
 
 #[async_trait]
@@ -107,13 +110,10 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, inp: Request<String>) -> Response<String> {
+    async fn call_runner(&self, inp: Request<String>) -> Result<Response<String>> {
         match FnIn::try_into(inp) {
-            Ok(req) => match FnOut::try_into(self(req).await) {
-                Ok(response) => response,
-                Err(serde_error) => serde_error.into(),
-            },
-            Err(serde_error) => serde_error.into(),
+            Ok(req) => FnOut::try_into(self(req).await),
+            Err(serde_error) => Err(serde_error),
         }
     }
 }
@@ -127,11 +127,8 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, _inp: Request<String>) -> Response<String> {
-        match FnOut::try_into(self().await) {
-            Ok(response) => response,
-            Err(serde_error) => serde_error.into(),
-        }
+    async fn call_runner(&self, _inp: Request<String>) -> Result<Response<String>> {
+        FnOut::try_into(self().await)
     }
 }
 
@@ -216,7 +213,10 @@ async fn call_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)>,
 {
-    runner.call_runner(req).await
+    match runner.call_runner(req).await {
+        Ok(resp) => resp,
+        Err(err) => err.into(),
+    }
 }
 
 #[cfg(test)]

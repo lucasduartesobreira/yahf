@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::Future;
+use futures::{Future, TryFutureExt};
 
 use crate::{error::Error, handler::Runner, request::Request, response::Response};
 
@@ -156,22 +156,13 @@ where
             let after = self.after.clone();
             let runner = _runner.clone();
             async move {
-                let req_updated = pre.call(req).await;
-                match req_updated.into() {
-                    Ok(req) => {
-                        let a = runner.call_runner(req).await;
-                        let res_updated = after.call(a);
-                        let res_with_type: ControlFlow<Response<String>> =
-                            CFA::into(res_updated.await);
-
-                        match res_with_type {
-                            Ok(resp) => resp,
-                            Err(err) => err.into(),
-                        }
-                    }
-                    Err(resp) => resp.into(),
-                }
+                let req_updated = pre.call(req).await.into()?;
+                let runner_resp = runner.call_runner(req_updated).await?;
+                let runner_resp_updated: ControlFlow<Response<String>> =
+                    after.call(runner_resp).await.into();
+                runner_resp_updated
             }
+            .map_ok_or_else(|e| e.into(), |ok| ok)
         }
     }
 }
@@ -237,7 +228,7 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()))
             .await;
 
-        assert!(resp.body() == "From pure request\nFrom middleware\nFrom the handler\nFrom the after middleware");
+        assert!(resp.unwrap().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom the after middleware");
 
         Ok(())
     }
@@ -260,7 +251,7 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()))
             .await;
 
-        assert!(resp.body() == "From middleware short-circuiting");
+        assert!(resp.unwrap().body() == "From middleware short-circuiting");
 
         Ok(())
     }
@@ -283,7 +274,7 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()))
             .await;
 
-        assert!(resp.body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
+        assert!(resp.unwrap().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
 
         Ok(())
     }
