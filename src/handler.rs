@@ -1,4 +1,8 @@
-use std::{marker::PhantomData, pin::Pin};
+use std::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+};
 
 use async_trait::async_trait;
 use futures::Future;
@@ -16,12 +20,46 @@ pub type RefHandler<'a> = &'a (dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Outp
          + Sync
          + Send);
 
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
+
+pub struct Result<T>(InternalResult<T>);
+
+impl<T> From<InternalResult<T>> for Result<T> {
+    fn from(value: InternalResult<T>) -> Self {
+        Result(value)
+    }
+}
+
+impl<T> AsRef<InternalResult<T>> for Result<T> {
+    fn as_ref(&self) -> &InternalResult<T> {
+        &self.0
+    }
+}
+
+impl<T> AsMut<InternalResult<T>> for Result<T> {
+    fn as_mut(&mut self) -> &mut InternalResult<T> {
+        &mut self.0
+    }
+}
+
+impl<T> Deref for Result<T> {
+    type Target = InternalResult<T>;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+impl<T> DerefMut for Result<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut()
+    }
+}
 
 pub trait BodyDeserializer {
     type Item: DeserializeOwned;
 
-    fn deserialize(content: &StandardBodyType) -> Result<Self::Item>
+    fn deserialize(content: &StandardBodyType) -> InternalResult<Self::Item>
     where
         Self: std::marker::Sized;
 }
@@ -29,12 +67,12 @@ pub trait BodyDeserializer {
 pub trait BodySerializer {
     type Item;
 
-    fn serialize(content: &Self::Item) -> Result<StandardBodyType>;
+    fn serialize(content: &Self::Item) -> InternalResult<StandardBodyType>;
 }
 
 /// Describes a type that can be extracted using a BodyExtractors
 pub trait RunnerInput<Extractor> {
-    fn try_into(input: Request<StandardBodyType>) -> Result<Self>
+    fn try_into(input: Request<StandardBodyType>) -> InternalResult<Self>
     where
         Self: std::marker::Sized;
 }
@@ -44,7 +82,7 @@ where
     Extractor: BodyDeserializer<Item = BodyType>,
     BodyType: DeserializeOwned,
 {
-    fn try_into(input: Request<String>) -> Result<Self>
+    fn try_into(input: Request<String>) -> InternalResult<Self>
     where
         Self: std::marker::Sized,
     {
@@ -57,7 +95,7 @@ where
     Extractor: BodyDeserializer<Item = BodyType>,
     BodyType: DeserializeOwned,
 {
-    fn try_into(input: Request<String>) -> Result<Self>
+    fn try_into(input: Request<String>) -> InternalResult<Self>
     where
         Self: std::marker::Sized,
     {
@@ -66,7 +104,7 @@ where
 }
 
 pub trait RunnerOutput<Serializer> {
-    fn try_into(self) -> Result<Response<String>>;
+    fn try_into(self) -> InternalResult<Response<String>>;
 }
 
 impl<BodyType, Serializer> RunnerOutput<Serializer> for Response<BodyType>
@@ -74,7 +112,7 @@ where
     Serializer: BodySerializer<Item = BodyType>,
     BodyType: Serialize,
 {
-    fn try_into(self) -> Result<Response<String>> {
+    fn try_into(self) -> InternalResult<Response<String>> {
         self.and_then(|body| Serializer::serialize(&body))
     }
 }
@@ -84,8 +122,19 @@ where
     Serializer: BodySerializer<Item = BodyType>,
     BodyType: Serialize,
 {
-    fn try_into(self) -> Result<Response<String>> {
+    fn try_into(self) -> InternalResult<Response<String>> {
         Serializer::serialize(&self).map(Response::new)
+    }
+}
+
+impl<BodyType, Serializer, BasicRunnerOutput> RunnerOutput<Serializer> for Result<BasicRunnerOutput>
+where
+    Serializer: BodySerializer<Item = BodyType>,
+    BodyType: Serialize,
+    BasicRunnerOutput: RunnerOutput<Serializer>,
+{
+    fn try_into(self) -> InternalResult<Response<String>> {
+        self.0.and_then(|resp| BasicRunnerOutput::try_into(resp))
     }
 }
 
@@ -94,7 +143,7 @@ pub trait Runner<Input, Output>: Clone + Send + Sync {
     async fn call_runner(
         &self,
         run: Request<StandardBodyType>,
-    ) -> Result<Response<StandardBodyType>>;
+    ) -> InternalResult<Response<StandardBodyType>>;
 }
 
 #[async_trait]
@@ -110,7 +159,7 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, inp: Request<String>) -> Result<Response<String>> {
+    async fn call_runner(&self, inp: Request<String>) -> InternalResult<Response<String>> {
         match FnIn::try_into(inp) {
             Ok(req) => FnOut::try_into(self(req).await),
             Err(serde_error) => Err(serde_error),
@@ -127,7 +176,7 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, _inp: Request<String>) -> Result<Response<String>> {
+    async fn call_runner(&self, _inp: Request<String>) -> InternalResult<Response<String>> {
         FnOut::try_into(self().await)
     }
 }
@@ -153,7 +202,7 @@ where
 {
     type Item = T;
 
-    fn deserialize(content: &StandardBodyType) -> Result<Self::Item>
+    fn deserialize(content: &StandardBodyType) -> InternalResult<Self::Item>
     where
         Self: std::marker::Sized,
     {
@@ -167,7 +216,7 @@ where
 {
     type Item = T;
 
-    fn serialize(content: &Self::Item) -> Result<String> {
+    fn serialize(content: &Self::Item) -> InternalResult<String> {
         serde_json::to_string(content).map_err(|err| Error::new(err.to_string(), 422))
     }
 }
@@ -175,7 +224,7 @@ where
 impl BodyDeserializer for String {
     type Item = String;
 
-    fn deserialize(_content: &StandardBodyType) -> Result<Self::Item>
+    fn deserialize(_content: &StandardBodyType) -> InternalResult<Self::Item>
     where
         Self: std::marker::Sized,
     {
@@ -186,7 +235,7 @@ impl BodyDeserializer for String {
 impl BodySerializer for String {
     type Item = String;
 
-    fn serialize(content: &Self::Item) -> Result<StandardBodyType> {
+    fn serialize(content: &Self::Item) -> InternalResult<StandardBodyType> {
         Ok(content.to_owned())
     }
 }
@@ -227,7 +276,7 @@ mod tests {
 
     use crate::handler::Json;
 
-    use super::{encapsulate_runner, Request, Response};
+    use super::{encapsulate_runner, Request, Response, Result};
 
     #[derive(Deserialize, Serialize)]
     struct SomeBodyType {
@@ -265,6 +314,15 @@ mod tests {
         new_field.push_str(" - Imagine Dragons");
 
         SomeBodyType { field: new_field }
+    }
+
+    async fn handler_with_simple_body_on_input_and_cf_output(
+        input: SomeBodyType,
+    ) -> Result<SomeBodyType> {
+        let mut new_field = input.field;
+        new_field.push_str(" - Eminem");
+
+        Ok(SomeBodyType { field: new_field }).into()
     }
 
     #[async_test]
@@ -343,6 +401,26 @@ mod tests {
         let b = a(c).await;
 
         let expected_field_result = "Sharks - Imagine Dragons";
+
+        assert_eq!(
+            b.body().as_str(),
+            serde_json::json!({ "field": expected_field_result }).to_string()
+        );
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_handler_with_simple_body_on_input_and_cf_output_runner() -> std::io::Result<()> {
+        let a = encapsulate_runner(
+            handler_with_simple_body_on_input_and_cf_output,
+            &Json::new(),
+            &Json::new(),
+        );
+        let c = Request::builder().body(serde_json::json!({ "field": "Venom" }).to_string());
+        let b = a(c).await;
+
+        let expected_field_result = "Venom - Eminem";
 
         assert_eq!(
             b.body().as_str(),

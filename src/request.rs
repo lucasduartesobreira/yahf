@@ -1,4 +1,4 @@
-use crate::handler::Result;
+use crate::handler::InternalResult;
 
 pub type Method = http::Method;
 pub type Uri = http::Uri;
@@ -34,8 +34,8 @@ impl<T> Request<T> {
     // TODO: Valuate if this will keep this fn or move to an from_parts style
     pub fn and_then<BodyType>(
         self,
-        callback: impl FnOnce(T) -> Result<BodyType>,
-    ) -> Result<Request<BodyType>> {
+        callback: impl FnOnce(T) -> InternalResult<BodyType>,
+    ) -> InternalResult<Request<BodyType>> {
         let (parts, body) = self.request.into_parts();
         callback(body).map(|body| Request {
             request: HttpRequest::from_parts(parts, body),
