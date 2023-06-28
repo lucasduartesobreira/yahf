@@ -8,34 +8,10 @@ use crate::{
     response::Response,
 };
 
-pub trait PreMiddleware: Send + Sync + Clone {
-    type FutCallResponse;
-    fn call(&self, req: Request<String>) -> Self::FutCallResponse;
-}
-
 impl From<Request<String>> for InternalResult<Request<String>> {
     fn from(val: Request<String>) -> Self {
         Ok(val)
     }
-}
-
-impl<MidFn, Fut, CF> PreMiddleware for MidFn
-where
-    MidFn: Fn(Request<String>) -> Fut + Send + Sync + Clone,
-    Fut: Future<Output = CF>,
-    CF: Into<InternalResult<Request<String>>>,
-{
-    type FutCallResponse = Fut;
-
-    #[inline(always)]
-    fn call(&self, req: Request<String>) -> Self::FutCallResponse {
-        self(req)
-    }
-}
-
-pub trait AfterMiddleware: Send + Sync + Clone {
-    type FutCallResponse;
-    fn call(&self, req: Response<String>) -> Self::FutCallResponse;
 }
 
 impl From<Response<String>> for InternalResult<Response<String>> {
@@ -44,26 +20,12 @@ impl From<Response<String>> for InternalResult<Response<String>> {
     }
 }
 
-impl<MidFn, Fut, CF> AfterMiddleware for MidFn
-where
-    MidFn: Fn(Response<String>) -> Fut + Send + Sync + Clone,
-    Fut: Future<Output = CF>,
-    CF: Into<InternalResult<Response<String>>>,
-{
-    type FutCallResponse = Fut;
-
-    #[inline(always)]
-    fn call(&self, req: Response<String>) -> Self::FutCallResponse {
-        self(req)
-    }
-}
-
-pub trait PreErrorMiddleware: Send + Sync + Clone {
+pub trait PreMiddleware: Send + Sync + Clone {
     type FutCallResponse;
     fn call(&self, error: InternalResult<Request<String>>) -> Self::FutCallResponse;
 }
 
-impl<MidFn, Fut, CF> PreErrorMiddleware for MidFn
+impl<MidFn, Fut, CF> PreMiddleware for MidFn
 where
     MidFn: Fn(Result<Request<String>>) -> Fut + Send + Sync + Clone,
     Fut: Future<Output = CF>,
@@ -77,12 +39,12 @@ where
     }
 }
 
-pub trait AfterErrorMiddleware: Send + Sync + Clone {
+pub trait AfterMiddleware: Send + Sync + Clone {
     type FutCallResponse;
     fn call(&self, error: InternalResult<Response<String>>) -> Self::FutCallResponse;
 }
 
-impl<MidFn, Fut, CF> AfterErrorMiddleware for MidFn
+impl<MidFn, Fut, CF> AfterMiddleware for MidFn
 where
     MidFn: Fn(Result<Response<String>>) -> Fut + Send + Sync + Clone,
     Fut: Future<Output = CF>,
@@ -104,18 +66,22 @@ pub struct MiddlewareFactory<FPre, FAfter> {
 
 impl MiddlewareFactory<(), ()> {
     #[inline(always)]
-    async fn unit_pre_middleware(request: Request<String>) -> Request<String> {
+    async fn unit_pre_middleware(request: Result<Request<String>>) -> Result<Request<String>> {
         request
     }
 
     #[inline(always)]
-    async fn unit_after_middleware(response: Response<String>) -> Response<String> {
+    async fn unit_after_middleware(response: Result<Response<String>>) -> Result<Response<String>> {
         response
     }
 
     pub fn new() -> MiddlewareFactory<
-        impl PreMiddleware<FutCallResponse = impl Future<Output = Request<String>>>,
-        impl AfterMiddleware<FutCallResponse = impl Future<Output = Response<String>>>,
+        impl PreMiddleware<
+            FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
+        >,
+        impl AfterMiddleware<
+            FutCallResponse = impl Future<Output = impl Into<InternalResult<Response<String>>>>,
+        >,
     > {
         MiddlewareFactory {
             pre: Self::unit_pre_middleware,
@@ -137,19 +103,14 @@ where
     pub fn pre<NewF: Future<Output = NewCF>, NewCF: Into<InternalResult<Request<String>>>>(
         self,
         other_pre: &'static (impl PreMiddleware<FutCallResponse = NewF> + Sync),
-    ) -> MiddlewareFactory<
-        impl PreMiddleware<FutCallResponse = impl Future<Output = InternalResult<Request<String>>>>,
-        FAfter,
-    > {
-        let pre = move |req| {
+    ) -> MiddlewareFactory<impl PreMiddleware<FutCallResponse = impl Future<Output = NewCF>>, FAfter>
+    {
+        let pre = move |req: Result<Request<String>>| {
             let cloned_pre_middleware = self.pre.clone();
             async move {
-                let resp = cloned_pre_middleware.call(req).await;
-
-                match resp.into() {
-                    Ok(req) => other_pre.call(req).await.into(),
-                    Err(resp) => Err(resp),
-                }
+                let resp = cloned_pre_middleware.call(req.into()).await;
+                let resp_internal_result: InternalResult<Request<String>> = resp.into();
+                other_pre.call(resp_internal_result).await
             }
         };
 
@@ -160,70 +121,16 @@ where
     }
 
     #[inline(always)]
-    pub fn pre_error<NewF: Future<Output = NewCF>, NewCF: Into<InternalResult<Request<String>>>>(
-        self,
-        other_pre: &'static (impl PreErrorMiddleware<FutCallResponse = NewF> + Sync),
-    ) -> MiddlewareFactory<
-        impl PreMiddleware<FutCallResponse = impl Future<Output = InternalResult<Request<String>>>>,
-        FAfter,
-    > {
-        let pre = move |req| {
-            let cloned_pre_middleware = self.pre.clone();
-            async move {
-                let resp = cloned_pre_middleware.call(req).await;
-                let resp_internal_result: InternalResult<Request<String>> = resp.into();
-                let resp_handled = other_pre.call(resp_internal_result).await;
-                resp_handled.into()
-            }
-        };
-
-        MiddlewareFactory {
-            pre: Box::new(pre),
-            after: self.after,
-        }
-    }
-
-    #[inline(always)]
     pub fn after<NewF: Future<Output = NewCFA>, NewCFA: Into<InternalResult<Response<String>>>>(
         self,
         other_after: &'static (impl AfterMiddleware<FutCallResponse = NewF> + Sync),
-    ) -> MiddlewareFactory<
-        FPre,
-        impl AfterMiddleware<FutCallResponse = impl Future<Output = InternalResult<Response<String>>>>,
-    > {
-        let after = move |res| {
+    ) -> MiddlewareFactory<FPre, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewCFA>>>
+    {
+        let after = move |res: Result<Response<String>>| {
             let cloned_after_middleware = self.after.clone();
             async move {
-                let resp = cloned_after_middleware.call(res).await;
-                match resp.into() {
-                    Ok(resp) => other_after.call(resp).await.into(),
-                    Err(resp) => Err(resp),
-                }
-            }
-        };
-
-        MiddlewareFactory {
-            pre: self.pre,
-            after,
-        }
-    }
-
-    #[inline(always)]
-    pub fn after_error<
-        NewF: Future<Output = NewCFA>,
-        NewCFA: Into<InternalResult<Response<String>>>,
-    >(
-        self,
-        other_after: &'static (impl AfterErrorMiddleware<FutCallResponse = NewF> + Sync),
-    ) -> MiddlewareFactory<
-        FPre,
-        impl AfterMiddleware<FutCallResponse = impl Future<Output = InternalResult<Response<String>>>>,
-    > {
-        let after = move |res| {
-            let cloned_after_middleware = self.after.clone();
-            async move {
-                let resp = cloned_after_middleware.call(res).await;
-                other_after.call(resp.into()).await.into()
+                let resp = cloned_after_middleware.call(res.into()).await;
+                other_after.call(resp.into()).await
             }
         };
 
@@ -247,8 +154,11 @@ where
             let after = self.after.clone();
             let runner = _runner.clone();
             async move {
-                let req_updated = pre.call(req).await.into()?;
-                let runner_resp = runner.call_runner(req_updated).await?;
+                let req_updated: InternalResult<Request<String>> = pre.call(Ok(req)).await.into();
+                let runner_resp = match req_updated {
+                    Ok(req) => runner.call_runner(req).await,
+                    Err(err) => Err(err),
+                };
                 let runner_resp_updated: InternalResult<Response<String>> =
                     after.call(runner_resp).await.into();
                 runner_resp_updated
@@ -272,11 +182,15 @@ mod test {
         response::Response,
     };
 
-    async fn pre_middleware(_req: Request<String>) -> Request<String> {
-        Request::new(format!("{}\nFrom middleware", _req.body()))
+    async fn pre_middleware(_req: Result<Request<String>>) -> Result<Request<String>> {
+        Ok(Request::new(format!(
+            "{}\nFrom middleware",
+            _req.into_inner().unwrap().body()
+        )))
+        .into()
     }
 
-    async fn pre_middleware_short_circuiting(_req: Request<String>) -> Result<Request<String>> {
+    async fn pre_middleware_with_error(_req: Result<Request<String>>) -> Result<Request<String>> {
         Err(Error::new(
             "From middleware short-circuiting".to_owned(),
             200,
@@ -284,7 +198,7 @@ mod test {
         .into()
     }
 
-    async fn pre_error_middleware(_: Result<Request<String>>) -> Result<Request<String>> {
+    async fn pre_middleware_error_handler(_: Result<Request<String>>) -> Result<Request<String>> {
         Err(Error::new("Error handled".to_owned(), 400)).into()
     }
 
@@ -292,25 +206,36 @@ mod test {
         Response::new(format!("{}\nFrom the handler", _req.body()))
     }
 
-    async fn after_middleware(res: Response<String>) -> Response<String> {
-        Response::new(format!("{}\nFrom the after middleware", res.body()))
+    async fn after_middleware(res: Result<Response<String>>) -> Result<Response<String>> {
+        Ok(Response::new(format!(
+            "{}\nFrom the after middleware",
+            res.into_inner().unwrap().body()
+        )))
+        .into()
     }
 
-    async fn after_middleware_short_circuiting(res: Response<String>) -> Result<Response<String>> {
+    async fn after_middleware_with_error(
+        res: Result<Response<String>>,
+    ) -> Result<Response<String>> {
         Err(Error::new(
-            format!("{}\nFrom middleware short-circuiting", res.body()),
+            format!(
+                "{}\nFrom middleware short-circuiting",
+                res.into_inner().unwrap().body()
+            ),
             200,
         ))
         .into()
     }
 
-    async fn after_error_middleware(res: Result<Response<String>>) -> Result<Response<String>> {
+    async fn after_middleware_error_handler(
+        res: Result<Response<String>>,
+    ) -> Result<Response<String>> {
         res.into_inner()
             .map_err(|_| Error::new("Error handled on after error".to_owned(), 400))
             .into()
     }
 
-    async fn runner_with_short_circuiting() -> Result<String> {
+    async fn runner_with_error() -> Result<String> {
         Err(Error::new(
             "From runner with short-circuiting".to_owned(),
             400,
@@ -345,8 +270,7 @@ mod test {
     async fn test_pre_middleware_with_short_circuit() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
-        let middleware = middleware.pre(&pre_middleware_short_circuiting);
-        let middleware = middleware.after(&after_middleware);
+        let middleware = middleware.pre(&pre_middleware_with_error);
         let arc_middleware = Arc::new(middleware);
 
         let updated_handler = arc_middleware.build(
@@ -369,7 +293,7 @@ mod test {
         let middleware = MiddlewareFactory::new();
 
         let middleware = middleware.pre(&pre_middleware);
-        let middleware = middleware.after(&after_middleware_short_circuiting);
+        let middleware = middleware.after(&after_middleware_with_error);
         let arc_middleware = Arc::new(middleware);
 
         let updated_handler = arc_middleware.build(
@@ -391,9 +315,8 @@ mod test {
     async fn test_pre_middleware_with_short_circuit_handled() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
-        let middleware = middleware.pre(&pre_middleware_short_circuiting);
-        let middleware = middleware.pre_error(&pre_error_middleware);
-        let middleware = middleware.after(&after_middleware);
+        let middleware = middleware.pre(&pre_middleware_with_error);
+        let middleware = middleware.pre(&pre_middleware_error_handler);
         let arc_middleware = Arc::new(middleware);
 
         let updated_handler = arc_middleware.build(
@@ -416,8 +339,8 @@ mod test {
         let middleware = MiddlewareFactory::new();
 
         let middleware = middleware.pre(&pre_middleware);
-        let middleware = middleware.after(&after_middleware_short_circuiting);
-        let middleware = middleware.after_error(&after_error_middleware);
+        let middleware = middleware.after(&after_middleware_with_error);
+        let middleware = middleware.after(&after_middleware_error_handler);
         let arc_middleware = Arc::new(middleware);
 
         let updated_handler = arc_middleware.build(
@@ -436,23 +359,21 @@ mod test {
     }
 
     #[async_test]
-    async fn test_runner_with_short_circuit() -> std::io::Result<()> {
+    async fn test_runner_with_error_handled_by_middleware() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
         let middleware = middleware.pre(&pre_middleware);
-        let middleware = middleware.after(&after_middleware);
+        let middleware = middleware.after(&after_middleware_error_handler);
         let arc_middleware = Arc::new(middleware);
 
         let updated_handler =
-            arc_middleware.build(runner_with_short_circuiting, &(), &String::with_capacity(0));
+            arc_middleware.build(runner_with_error, &(), &String::with_capacity(0));
 
         let resp = updated_handler
             .call_runner(Request::new("From pure request".to_owned()))
             .await;
 
-        println!("{}", resp.as_ref().unwrap().body());
-
-        assert!(resp.unwrap().body() == "From runner with short-circuiting");
+        assert!(resp.unwrap().body() == "Error handled on after error");
 
         Ok(())
     }
