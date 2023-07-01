@@ -20,14 +20,14 @@ impl From<Response<String>> for InternalResult<Response<String>> {
     }
 }
 
-pub trait PreMiddleware: Send + Sync + Clone {
+pub trait PreMiddleware: Send + Sync + Copy {
     type FutCallResponse;
     fn call(&self, error: InternalResult<Request<String>>) -> Self::FutCallResponse;
 }
 
 impl<MidFn, Fut, CF> PreMiddleware for MidFn
 where
-    MidFn: Fn(Result<Request<String>>) -> Fut + Send + Sync + Clone,
+    MidFn: Fn(Result<Request<String>>) -> Fut + Send + Sync + Copy,
     Fut: Future<Output = CF>,
     CF: Into<InternalResult<Request<String>>>,
 {
@@ -39,14 +39,14 @@ where
     }
 }
 
-pub trait AfterMiddleware: Send + Sync + Clone {
+pub trait AfterMiddleware: Send + Sync + Copy {
     type FutCallResponse;
     fn call(&self, error: InternalResult<Response<String>>) -> Self::FutCallResponse;
 }
 
 impl<MidFn, Fut, CF> AfterMiddleware for MidFn
 where
-    MidFn: Fn(Result<Response<String>>) -> Fut + Send + Sync + Clone,
+    MidFn: Fn(Result<Response<String>>) -> Fut + Send + Sync + Copy,
     Fut: Future<Output = CF>,
     CF: Into<InternalResult<Response<String>>>,
 {
@@ -99,14 +99,18 @@ where
     CFA: Into<InternalResult<Response<String>>> + Send,
     FA: Future<Output = CFA> + Send,
 {
+    pub fn into_parts(self) -> (FPre, FAfter) {
+        (self.pre, self.after)
+    }
+
     #[inline(always)]
     pub fn pre<NewF: Future<Output = NewCF>, NewCF: Into<InternalResult<Request<String>>>>(
         self,
-        other_pre: &'static (impl PreMiddleware<FutCallResponse = NewF> + Sync),
+        other_pre: impl PreMiddleware<FutCallResponse = NewF> + Sync + Copy,
     ) -> MiddlewareFactory<impl PreMiddleware<FutCallResponse = impl Future<Output = NewCF>>, FAfter>
     {
         let pre = move |req: Result<Request<String>>| {
-            let cloned_pre_middleware = self.pre.clone();
+            let cloned_pre_middleware = self.pre;
             async move {
                 let resp = cloned_pre_middleware.call(req.into()).await;
                 let resp_internal_result: InternalResult<Request<String>> = resp.into();
@@ -123,11 +127,11 @@ where
     #[inline(always)]
     pub fn after<NewF: Future<Output = NewCFA>, NewCFA: Into<InternalResult<Response<String>>>>(
         self,
-        other_after: &'static (impl AfterMiddleware<FutCallResponse = NewF> + Sync),
+        other_after: impl AfterMiddleware<FutCallResponse = NewF> + Sync + Copy,
     ) -> MiddlewareFactory<FPre, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewCFA>>>
     {
         let after = move |res: Result<Response<String>>| {
-            let cloned_after_middleware = self.after.clone();
+            let cloned_after_middleware = self.after;
             async move {
                 let resp = cloned_after_middleware.call(res.into()).await;
                 other_after.call(resp.into()).await
@@ -150,8 +154,8 @@ where
         R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     {
         move |req| {
-            let pre = self.pre.clone();
-            let after = self.after.clone();
+            let pre = self.pre;
+            let after = self.after;
             let runner = _runner.clone();
             async move {
                 let req_updated: InternalResult<Request<String>> = pre.call(Ok(req)).await.into();
