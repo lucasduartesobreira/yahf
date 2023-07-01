@@ -92,8 +92,8 @@ impl MiddlewareFactory<(), ()> {
 
 impl<FPre, FAfter, F, FA, CF, CFA> MiddlewareFactory<FPre, FAfter>
 where
-    FPre: PreMiddleware<FutCallResponse = F> + 'static,
-    FAfter: AfterMiddleware<FutCallResponse = FA> + 'static,
+    FPre: PreMiddleware<FutCallResponse = F>,
+    FAfter: AfterMiddleware<FutCallResponse = FA>,
     F: Future<Output = CF> + Send,
     CF: Into<InternalResult<Request<String>>> + Send,
     CFA: Into<InternalResult<Response<String>>> + Send,
