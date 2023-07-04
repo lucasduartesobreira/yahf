@@ -58,7 +58,7 @@ where
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct MiddlewareFactory<FPre, FAfter> {
     pre: FPre,
     after: FAfter,
@@ -99,7 +99,7 @@ where
     CFA: Into<InternalResult<Response<String>>> + Send,
     FA: Future<Output = CFA> + Send,
 {
-    pub fn into_parts(self) -> (FPre, FAfter) {
+    pub(crate) fn into_parts(self) -> (FPre, FAfter) {
         (self.pre, self.after)
     }
 
