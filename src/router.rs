@@ -10,8 +10,8 @@ use crate::{
     response::Response,
 };
 
-pub struct Router<MPre, MAfter> {
-    middleware_factory: Arc<MiddlewareFactory<MPre, MAfter>>,
+pub struct Router<PreM, AfterM> {
+    middleware_factory: Arc<MiddlewareFactory<PreM, AfterM>>,
     get: HandlerSelect<'static>,
     put: HandlerSelect<'static>,
     delete: HandlerSelect<'static>,
@@ -67,7 +67,7 @@ macro_rules! method_insert {
                     .clone()
                     .build(handler, deserializer, serializer);
 
-            self.add_handler(
+            self.method(
                 $method,
                 path,
                 built_with_middleware,
@@ -78,18 +78,18 @@ macro_rules! method_insert {
     };
 }
 
-impl<MPre, MAfter, FutP, FutA, CFP, CFA> Router<MPre, MAfter>
+impl<AfterP, AfterM, FutP, FutA, ResultP, ResultA> Router<AfterP, AfterM>
 where
-    MPre: PreMiddleware<FutCallResponse = FutP> + 'static,
-    FutP: Future<Output = CFP> + std::marker::Send + 'static,
-    CFP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
-    MAfter: AfterMiddleware<FutCallResponse = FutA> + 'static,
-    FutA: Future<Output = CFA> + std::marker::Send + 'static,
-    CFA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+    AfterP: PreMiddleware<FutCallResponse = FutP> + 'static,
+    FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+    ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+    AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+    FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+    ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
-    pub fn extend<OtherMPre, OtherMAfter, OtherFutA, OtherFutP, OtherCFP, OtherCFA>(
+    pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         mut self,
-        router: Router<OtherMPre, OtherMAfter>,
+        router: Router<OtherPreM, OtherAfterM>,
     ) -> Router<
         impl PreMiddleware<
             FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
@@ -99,12 +99,12 @@ where
         >,
     >
     where
-        OtherMPre: PreMiddleware<FutCallResponse = OtherFutP> + 'static,
-        OtherMAfter: AfterMiddleware<FutCallResponse = OtherFutA> + 'static,
-        OtherFutP: Future<Output = OtherCFP> + Send,
-        OtherFutA: Future<Output = OtherCFA> + Send,
-        OtherCFP: Into<InternalResult<Request<String>>> + Send,
-        OtherCFA: Into<InternalResult<Response<String>>> + Send,
+        OtherPreM: PreMiddleware<FutCallResponse = OtherFutP> + 'static,
+        OtherAfterM: AfterMiddleware<FutCallResponse = OtherFutA> + 'static,
+        OtherFutP: Future<Output = OtherResultP> + Send,
+        OtherFutA: Future<Output = OtherResultA> + Send,
+        OtherResultP: Into<InternalResult<Request<String>>> + Send,
+        OtherResultA: Into<InternalResult<Response<String>>> + Send,
     {
         let (other_pre, other_after) = router.middleware_factory.into_parts();
         let combined_middleware = self.middleware_factory.pre(other_pre).after(other_after);
@@ -133,14 +133,14 @@ where
         }
     }
 
-    pub fn pre<NewPM, NewFut, NewCFP>(
+    pub fn pre<NewPreM, NewFut, NewResultP>(
         self,
-        middleware: NewPM,
-    ) -> Router<impl PreMiddleware<FutCallResponse = impl Future<Output = NewCFP>>, MAfter>
+        middleware: NewPreM,
+    ) -> Router<impl PreMiddleware<FutCallResponse = impl Future<Output = NewResultP>>, AfterM>
     where
-        NewPM: PreMiddleware<FutCallResponse = NewFut>,
-        NewFut: Future<Output = NewCFP>,
-        NewCFP: Into<InternalResult<Request<String>>>,
+        NewPreM: PreMiddleware<FutCallResponse = NewFut>,
+        NewFut: Future<Output = NewResultP>,
+        NewResultP: Into<InternalResult<Request<String>>>,
     {
         let new_factory = self.middleware_factory.pre(middleware);
         Router {
@@ -157,14 +157,14 @@ where
         }
     }
 
-    pub fn after<NewAM, NewFut, NewCFA>(
+    pub fn after<NewAfterM, NewFut, NewResultA>(
         self,
-        middleware: NewAM,
-    ) -> Router<MPre, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewCFA>>>
+        middleware: NewAfterM,
+    ) -> Router<AfterP, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewResultA>>>
     where
-        NewAM: AfterMiddleware<FutCallResponse = NewFut>,
-        NewFut: Future<Output = NewCFA>,
-        NewCFA: Into<InternalResult<Response<String>>>,
+        NewAfterM: AfterMiddleware<FutCallResponse = NewFut>,
+        NewFut: Future<Output = NewResultA>,
+        NewResultA: Into<InternalResult<Response<String>>>,
     {
         let new_factory = self.middleware_factory.after(middleware);
         Router {
@@ -181,7 +181,7 @@ where
         }
     }
 
-    pub fn add_handler<FnIn, FnOut, Deserializer, Serializer, R>(
+    pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
         &mut self,
         method: Method,
         path: &'static str,
@@ -232,7 +232,7 @@ where
                 path,
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
-            _ => unreachable!("Only acceptable HTTP methods are GET, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH, HEAD"),
+            _ => unreachable!("HTTP methods allowed: GET, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH, HEAD"),
         }
     }
 
@@ -245,6 +245,30 @@ where
     method_insert!(connect, Method::CONNECT);
     method_insert!(patch, Method::PATCH);
     method_insert!(head, Method::HEAD);
+
+    pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
+        &mut self,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        self.get(path, handler.clone(), deserializer, serializer);
+        self.put(path, handler.clone(), deserializer, serializer);
+        self.delete(path, handler.clone(), deserializer, serializer);
+        self.post(path, handler.clone(), deserializer, serializer);
+        self.trace(path, handler.clone(), deserializer, serializer);
+        self.options(path, handler.clone(), deserializer, serializer);
+        self.connect(path, handler.clone(), deserializer, serializer);
+        self.patch(path, handler.clone(), deserializer, serializer);
+        self.head(path, handler, deserializer, serializer);
+    }
 
     #[allow(dead_code)]
     pub(crate) fn find_handler(&self, method: &Method, path: &str) -> Option<RefHandler<'_>> {
