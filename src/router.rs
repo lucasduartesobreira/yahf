@@ -78,9 +78,9 @@ macro_rules! method_insert {
     };
 }
 
-impl<AfterP, AfterM, FutP, FutA, ResultP, ResultA> Router<AfterP, AfterM>
+impl<PreM, AfterM, FutP, FutA, ResultP, ResultA> Router<PreM, AfterM>
 where
-    AfterP: PreMiddleware<FutCallResponse = FutP> + 'static,
+    PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
     FutP: Future<Output = ResultP> + std::marker::Send + 'static,
     ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
     AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
@@ -90,14 +90,7 @@ where
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         mut self,
         router: Router<OtherPreM, OtherAfterM>,
-    ) -> Router<
-        impl PreMiddleware<
-            FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
-        >,
-        impl AfterMiddleware<
-            FutCallResponse = impl Future<Output = impl Into<InternalResult<Response<String>>>>,
-        >,
-    >
+    ) -> Router<PreM, AfterM>
     where
         OtherPreM: PreMiddleware<FutCallResponse = OtherFutP> + 'static,
         OtherAfterM: AfterMiddleware<FutCallResponse = OtherFutA> + 'static,
@@ -106,9 +99,6 @@ where
         OtherResultP: Into<InternalResult<Request<String>>> + Send,
         OtherResultA: Into<InternalResult<Response<String>>> + Send,
     {
-        let (other_pre, other_after) = router.middleware_factory.into_parts();
-        let combined_middleware = self.middleware_factory.pre(other_pre).after(other_after);
-
         self.get.extend(router.get);
         self.put.extend(router.put);
         self.delete.extend(router.delete);
@@ -119,18 +109,7 @@ where
         self.patch.extend(router.patch);
         self.head.extend(router.head);
 
-        Router {
-            middleware_factory: Arc::new(combined_middleware),
-            get: self.get,
-            put: self.put,
-            delete: self.delete,
-            post: self.post,
-            trace: self.trace,
-            options: self.options,
-            connect: self.connect,
-            patch: self.patch,
-            head: self.head,
-        }
+        self
     }
 
     pub fn pre<NewPreM, NewFut, NewResultP>(
@@ -160,7 +139,7 @@ where
     pub fn after<NewAfterM, NewFut, NewResultA>(
         self,
         middleware: NewAfterM,
-    ) -> Router<AfterP, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewResultA>>>
+    ) -> Router<PreM, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewResultA>>>
     where
         NewAfterM: AfterMiddleware<FutCallResponse = NewFut>,
         NewFut: Future<Output = NewResultA>,
@@ -271,7 +250,7 @@ where
     }
 
     #[allow(dead_code)]
-    pub(crate) fn find_handler(&self, method: &Method, path: &str) -> Option<RefHandler<'_>> {
+    pub(crate) fn find_route(&self, method: &Method, path: &str) -> Option<RefHandler<'_>> {
         match *method {
             Method::GET => self.get.get(path),
             Method::PUT => self.put.get(path),
@@ -399,7 +378,7 @@ mod test {
                 let mut router = router;
                 let router = &mut router;
                 $router_method(router, "/path/to", $runner, $des, &String::with_capacity(0));
-                let handler = Router::find_handler(router, request.method(), "/path/to");
+                let handler = Router::find_route(router, request.method(), "/path/to");
 
                 assert!(handler.is_some());
 

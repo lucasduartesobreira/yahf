@@ -99,10 +99,6 @@ where
     CFA: Into<InternalResult<Response<String>>> + Send,
     FA: Future<Output = CFA> + Send,
 {
-    pub(crate) fn into_parts(self) -> (FPre, FAfter) {
-        (self.pre, self.after)
-    }
-
     #[inline(always)]
     pub fn pre<NewF: Future<Output = NewCF>, NewCF: Into<InternalResult<Request<String>>>>(
         self,
