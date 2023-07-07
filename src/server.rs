@@ -82,6 +82,22 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
+    pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
+        self,
+        router: Router<OtherPreM, OtherAfterM>,
+    ) -> Self
+    where
+        OtherPreM: PreMiddleware<FutCallResponse = OtherFutP> + 'static,
+        OtherAfterM: AfterMiddleware<FutCallResponse = OtherFutA> + 'static,
+        OtherFutP: Future<Output = OtherResultP> + Send,
+        OtherFutA: Future<Output = OtherResultA> + Send,
+        OtherResultP: Into<InternalResult<Request<String>>> + Send,
+        OtherResultA: Into<InternalResult<Response<String>>> + Send,
+    {
+        let new_router = self.router.router(router);
+        Self { router: new_router }
+    }
+
     pub fn pre<NewPreM, NewFut, NewResultP>(
         self,
         middleware: NewPreM,

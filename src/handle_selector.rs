@@ -37,7 +37,7 @@ impl<'a> HandlerSelect<'a> {
         }
 
         match (node.childrens, node.wildcard_node) {
-            (None, None) => unreachable!("Something went wrong, can't exist a Node that don't have either a Handler or children nodes"),
+            (None, None) => {}
             (None, Some(wildcard_node)) => {
                 path.push_str("/{wildcard_node}");
                 self.rec_extend(*wildcard_node, path);
