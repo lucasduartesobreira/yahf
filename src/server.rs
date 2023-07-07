@@ -11,17 +11,12 @@ use crate::{
     response::Response,
     router::Router,
 };
-use async_std::{
-    io::{BufReader, WriteExt},
-    net::TcpStream,
-    task,
-};
-use async_std::{
-    net::{TcpListener, ToSocketAddrs},
-    stream::StreamExt,
-};
-use futures::{AsyncBufReadExt, AsyncRead, AsyncWrite, Future};
+use async_std::io::BufReader;
+use async_std::net::{TcpListener, ToSocketAddrs};
+use async_std::prelude::*;
+use async_std::task;
 
+use futures::{AsyncRead, AsyncWrite, StreamExt};
 use request::Method;
 
 pub struct Server<PreM, AfterM> {
@@ -159,7 +154,7 @@ where
 
 fn handle_stream<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
     server: Arc<Server<PreM, AfterM>>,
-    mut stream: TcpStream,
+    mut stream: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
 ) -> async_std::task::JoinHandle<()>
 where
     PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
@@ -170,12 +165,17 @@ where
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
     task::spawn(async move {
-        let fut = connection_loop(server, &stream);
-        if let Err(e) = fut.await {
-            let formatted_error = format!("HTTP/1.1 {}", e);
-            stream.write(formatted_error.as_bytes());
-            eprintln!("{}", e);
-        }
+        let fut = connection_loop(server, &mut stream);
+        let response = match fut.await {
+            Ok(resp) => resp,
+            Err(err) => {
+                println!("{}", err);
+                format!("HTTP/1.1 {}", err)
+            }
+        };
+
+        stream.write_all(response.as_bytes()).await;
+        stream.flush().await;
     })
 }
 
@@ -185,8 +185,8 @@ const HTTP_VERSION_NOT_SUPPORTED: &str = "505 HTTP Version Not Supported";
 
 async fn connection_loop<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
     server: Arc<Server<PreM, AfterM>>,
-    mut stream: impl AsyncRead + AsyncWrite + Unpin,
-) -> ListenResult<()>
+    mut stream: &mut (impl AsyncRead + Unpin),
+) -> ListenResult<String>
 where
     PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
     FutP: Future<Output = ResultP> + std::marker::Send + 'static,
@@ -195,15 +195,18 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
-    let buf_reader = BufReader::new(&mut stream);
-    let mut lines = buf_reader.lines();
-    let first_line = lines.next().await;
+    let mut buf_reader = BufReader::new(&mut stream);
+    let mut first = String::with_capacity(1024);
+    buf_reader
+        .read_line(&mut first)
+        .await
+        .map_err(|_| BAD_REQUEST)?;
 
     let request_builder = Request::builder();
-    let fl = match first_line {
-        Some(first_line) => first_line.map_err(|_| BAD_REQUEST)?,
-        None => Err(BAD_REQUEST)?,
-    };
+
+    first.pop();
+    first.pop();
+    let fl = first;
 
     let mut splitted_fl = fl.split(' ');
     let method = match splitted_fl.next() {
@@ -243,8 +246,16 @@ where
     let mut request_builder = request_builder.method(method).uri(uri);
     let mut content_length = 0usize;
 
-    while let Some(line) = lines.next().await {
-        let line = line?;
+    loop {
+        let mut line = String::with_capacity(100);
+        buf_reader
+            .read_line(&mut line)
+            .await
+            .map_err(|_| BAD_REQUEST)?;
+
+        line.pop();
+        line.pop();
+
         if line.is_empty() {
             break;
         }
@@ -270,13 +281,13 @@ where
         }
     }
 
-    let mut body_string = String::with_capacity(content_length);
-    while body_string.len() != content_length {
-        if let Some(line) = lines.next().await {
-            let line = line?;
-            body_string.push_str(line.as_str());
-        }
-    }
+    let mut body_string = vec![0u8; content_length];
+    buf_reader
+        .read_exact(&mut body_string)
+        .await
+        .map_err(|_| BAD_REQUEST)?;
+
+    let body_string = String::from_utf8(body_string)?;
 
     let request = request_builder.body(body_string);
 
@@ -296,9 +307,7 @@ where
         response.body()
     );
 
-    stream.write_all(response_string.as_bytes()).await?;
-    stream.flush().await?;
-    Ok(())
+    Ok(response_string)
 }
 
 mod test_utils {
@@ -309,6 +318,7 @@ mod test_utils {
     use futures::task::{Context, Poll};
     use futures::{AsyncRead, AsyncWrite};
 
+    #[derive(Clone)]
     pub struct MockTcpStream {
         pub read_data: Vec<u8>,
         pub write_data: Vec<u8>,
@@ -571,8 +581,8 @@ mod test_connection_loop {
     use crate::middleware::{AfterMiddleware, PreMiddleware};
     use crate::request::Method;
     use crate::response::Response;
-    use crate::server::connection_loop;
     use crate::server::test_utils::MockTcpStream;
+    use crate::server::{connection_loop, handle_stream};
     use crate::{handler::Json, request::Request, server::Server};
 
     #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -639,7 +649,7 @@ mod test_connection_loop {
             write_data: vec![],
         };
 
-        connection_loop(server, &mut stream).await.unwrap();
+        let response_a = connection_loop(server, &mut stream).await;
 
         // TODO: Implement ToString for Response
         let expected_contents = response.body();
@@ -652,7 +662,9 @@ mod test_connection_loop {
             expected_contents
         );
 
-        assert!(stream.write_data.starts_with(expected_response.as_bytes()));
+        assert!(response_a
+            .map_or_else(|err| format!("HTTP/1.1 {}", err), |res| res)
+            .starts_with(&expected_response));
     }
 
     macro_rules! test_connection_loop {
@@ -735,7 +747,7 @@ mod test_connection_loop {
         // TODO: Implement ToString for Response
         println!("{:?}", error);
         match error {
-            Ok(_) => assert!(stream.write_data.starts_with(response.as_bytes())),
+            Ok(res) => assert!(res.starts_with(&response)),
             Err(err) => assert!(err.to_string().starts_with(response.as_str())),
         }
     }
