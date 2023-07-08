@@ -4,7 +4,6 @@ use std::{
     pin::Pin,
 };
 
-use async_trait::async_trait;
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -150,15 +149,13 @@ where
     }
 }
 
-#[async_trait]
 pub trait Runner<Input, Output>: Clone + Send + Sync {
-    async fn call_runner(
-        &self,
+    fn call_runner(
+        &'_ self,
         run: Request<StandardBodyType>,
-    ) -> InternalResult<Response<StandardBodyType>>;
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_;
 }
 
-#[async_trait]
 impl<ReqBody, ResBody, FnIn, FnOut, BodyDes, BodySer, Fut, F>
     Runner<(FnIn, BodyDes), (FnOut, BodySer)> for F
 where
@@ -171,15 +168,20 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, inp: Request<String>) -> InternalResult<Response<String>> {
-        match FnIn::try_into(inp) {
-            Ok(req) => FnOut::try_into(self(req).await),
-            Err(serde_error) => Err(serde_error),
+    #[allow(clippy::manual_async_fn)]
+    fn call_runner(
+        &'_ self,
+        inp: Request<String>,
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
+        async move {
+            match FnIn::try_into(inp) {
+                Ok(req) => FnOut::try_into(self(req).await),
+                Err(serde_error) => Err(serde_error),
+            }
         }
     }
 }
 
-#[async_trait]
 impl<ResBody, FnOut, BodySer, Fut, F> Runner<((), ()), (FnOut, BodySer)> for F
 where
     F: Fn() -> Fut + Send + Sync + Clone,
@@ -188,8 +190,12 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, _inp: Request<String>) -> InternalResult<Response<String>> {
-        FnOut::try_into(self().await)
+    #[allow(clippy::manual_async_fn)]
+    fn call_runner(
+        &'_ self,
+        _run: Request<StandardBodyType>,
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
+        async move { FnOut::try_into(self().await) }
     }
 }
 
