@@ -1,3 +1,5 @@
+#![allow(incomplete_features)]
+#![feature(return_position_impl_trait_in_trait)]
 pub mod error;
 pub mod handle_selector;
 pub mod handler;
