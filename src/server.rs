@@ -146,7 +146,6 @@ where
 
     while let Some(stream) = incoming.next().await {
         let stream = stream?;
-        println!("Accepting from: {}", stream.peer_addr()?);
         handle_stream(server.clone(), stream);
     }
     Ok(())
