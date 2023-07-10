@@ -28,6 +28,7 @@ impl ResponseBuilder {
     }
 }
 
+#[derive(Debug)]
 pub struct Response<T> {
     response: HttpResponse<T>,
 }

@@ -79,7 +79,7 @@ pub trait BodySerializer {
 
 /// Describes a type that can be extracted using a BodyExtractors
 pub trait RunnerInput<Extractor> {
-    fn try_into(input: Request<StandardBodyType>) -> InternalResult<Self>
+    fn try_into(input: InternalResult<Request<StandardBodyType>>) -> InternalResult<Self>
     where
         Self: std::marker::Sized;
 }
@@ -89,11 +89,11 @@ where
     Extractor: BodyDeserializer<Item = BodyType>,
     BodyType: DeserializeOwned,
 {
-    fn try_into(input: Request<String>) -> InternalResult<Self>
+    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
     where
         Self: std::marker::Sized,
     {
-        Extractor::deserialize(input.body())
+        input.and_then(|input| Extractor::deserialize(input.body()))
     }
 }
 
@@ -102,11 +102,26 @@ where
     Extractor: BodyDeserializer<Item = BodyType>,
     BodyType: DeserializeOwned,
 {
-    fn try_into(input: Request<String>) -> InternalResult<Self>
+    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
     where
         Self: std::marker::Sized,
     {
-        input.and_then(|body| Extractor::deserialize(&body))
+        input.and_then(|input| input.and_then(|body| Extractor::deserialize(&body)))
+    }
+}
+
+//self.0.and_then(|resp| BasicRunnerOutput::try_into(resp))
+impl<BodyType, Extractor, RInput> RunnerInput<Extractor> for Result<RInput>
+where
+    Extractor: BodyDeserializer<Item = BodyType>,
+    BodyType: DeserializeOwned,
+    RInput: RunnerInput<Extractor>,
+{
+    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
+    where
+        Self: std::marker::Sized,
+    {
+        Ok(RInput::try_into(input).into())
     }
 }
 
@@ -170,7 +185,7 @@ where
         inp: InternalResult<Request<StandardBodyType>>,
     ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
         async move {
-            let inp = inp.and_then(|inp| FnIn::try_into(inp));
+            let inp = FnIn::try_into(inp);
 
             match inp {
                 Ok(req) => FnOut::try_into(self(req).await),
