@@ -99,15 +99,28 @@ where
         OtherResultP: Into<InternalResult<Request<String>>> + Send,
         OtherResultA: Into<InternalResult<Response<String>>> + Send,
     {
-        self.get.extend(router.get);
-        self.put.extend(router.put);
-        self.delete.extend(router.delete);
-        self.post.extend(router.post);
-        self.trace.extend(router.trace);
-        self.options.extend(router.options);
-        self.connect.extend(router.connect);
-        self.patch.extend(router.patch);
-        self.head.extend(router.head);
+        let [get, put, delete, post, trace, options, connect, patch, head] = [
+            router.get,
+            router.put,
+            router.delete,
+            router.post,
+            router.trace,
+            router.options,
+            router.connect,
+            router.patch,
+            router.head,
+        ]
+        .map(|handler| handler.apply(self.middleware_factory.clone()));
+
+        self.get.extend(get);
+        self.put.extend(put);
+        self.delete.extend(delete);
+        self.post.extend(post);
+        self.trace.extend(trace);
+        self.options.extend(options);
+        self.connect.extend(connect);
+        self.patch.extend(patch);
+        self.head.extend(head);
 
         self
     }
@@ -340,7 +353,7 @@ mod test {
             runner: RefHandler<'_>,
             request: InternalResult<Request<String>>,
         ) -> InternalResult<Response<String>> {
-            runner(request).await
+            runner.call(request).await
         }
     }
 

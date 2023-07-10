@@ -1,6 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::handler::{BoxedHandler, RefHandler};
+use futures::Future;
+
+use crate::{
+    handler::{encapsulate_runner, BoxedHandler, InternalResult, RefHandler},
+    middleware::{AfterMiddleware, MiddlewareFactory, PreMiddleware},
+    request::Request,
+    response::Response,
+};
 
 #[derive(Default)]
 struct Node<'a> {
@@ -23,6 +30,58 @@ impl<'a> HandlerSelect<'a> {
         Self {
             root: Node::default(),
         }
+    }
+
+    pub fn apply<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+        mut self,
+        middleware_factory: Arc<MiddlewareFactory<PreM, AfterM>>,
+    ) -> Self
+    where
+        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+        FutP: Future<Output = ResultP> + Send + 'static,
+        FutA: Future<Output = ResultA> + Send + 'static,
+        ResultP: Into<InternalResult<Request<String>>> + Send + 'static,
+        ResultA: Into<InternalResult<Response<String>>> + Send + 'static,
+    {
+        Self::rec_apply(&mut self.root, middleware_factory);
+        self
+    }
+
+    fn rec_apply<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+        actual_node: &mut Node<'a>,
+        middleware_factory: Arc<MiddlewareFactory<PreM, AfterM>>,
+    ) where
+        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+        FutP: Future<Output = ResultP> + Send + 'static,
+        FutA: Future<Output = ResultA> + Send + 'static,
+        ResultP: Into<InternalResult<Request<String>>> + Send + 'static,
+        ResultA: Into<InternalResult<Response<String>>> + Send + 'static,
+    {
+        actual_node.apply_middlewares(middleware_factory.clone());
+
+        match (
+            actual_node.childrens.as_mut(),
+            actual_node.wildcard_node.as_mut(),
+        ) {
+            (None, None) => {}
+            (None, Some(wildcard)) => {
+                Self::rec_apply(wildcard, middleware_factory);
+            }
+            (Some(childrens), None) => {
+                childrens.iter_mut().for_each(|(_, node)| {
+                    Self::rec_apply(node, middleware_factory.clone());
+                });
+            }
+            (Some(childrens), Some(wildcard)) => {
+                Self::rec_apply(wildcard, middleware_factory.clone());
+
+                childrens.iter_mut().for_each(|(_, node)| {
+                    Self::rec_apply(node, middleware_factory.clone());
+                });
+            }
+        };
     }
 
     pub fn extend(&mut self, another_handler: HandlerSelect<'a>) {
@@ -112,6 +171,32 @@ impl<'a> Node<'a> {
 
         self.wildcard_node = Some(Box::default());
         self.wildcard_node.as_mut().unwrap().as_mut()
+    }
+
+    fn apply_middlewares<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+        &mut self,
+        middleware_factory: Arc<MiddlewareFactory<PreM, AfterM>>,
+    ) where
+        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+        FutP: Future<Output = ResultP> + Send + 'static,
+        FutA: Future<Output = ResultA> + Send + 'static,
+        ResultP: Into<InternalResult<Request<String>>> + Send + 'static,
+        ResultA: Into<InternalResult<Response<String>>> + Send + 'static,
+    {
+        if let Some(value) = self.value.as_mut() {
+            let built = middleware_factory.build(
+                value.clone(),
+                &String::with_capacity(0),
+                &String::with_capacity(0),
+            );
+
+            self.value = Some(Box::new(encapsulate_runner(
+                built,
+                &String::with_capacity(0),
+                &String::with_capacity(0),
+            )));
+        }
     }
 
     fn add_normal_node(&mut self, path: &'a str) -> &mut Self {
