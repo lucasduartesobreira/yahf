@@ -291,7 +291,9 @@ where
 
     let request = request_builder.body(body_string);
 
-    let response = handler(request).await;
+    let response = handler(request.into())
+        .await
+        .map_or_else(|err| err.into(), |resp| resp);
 
     let response_string = format!(
         "HTTP/1.1 {} {}\r\n{}\r\n{}",
@@ -406,7 +408,7 @@ mod test_server_routing {
 
         assert!(handler.is_some());
 
-        handler.unwrap()(req).await
+        handler.unwrap()(req.into()).await.unwrap()
     }
 
     #[async_test]
@@ -581,8 +583,8 @@ mod test_connection_loop {
     use crate::middleware::{AfterMiddleware, PreMiddleware};
     use crate::request::Method;
     use crate::response::Response;
+    use crate::server::connection_loop;
     use crate::server::test_utils::MockTcpStream;
-    use crate::server::{connection_loop, handle_stream};
     use crate::{handler::Json, request::Request, server::Server};
 
     #[derive(Debug, Deserialize, Serialize, PartialEq)]
