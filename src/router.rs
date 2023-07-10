@@ -398,7 +398,7 @@ mod test {
                 let response = super::utils::run_runner(handler.unwrap(), request.into()).await;
 
                 super::utils::test_runner_response(
-                    response.unwrap().body().to_owned(),
+                    response.map_or_else(|err| err.into(), |res| res).body().to_owned(),
                     $expected_body.to_owned(),
                 );
 

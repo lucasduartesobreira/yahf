@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::{Future, TryFutureExt};
+use futures::Future;
 
 use crate::{
     handler::{InternalResult, Result, Runner},
@@ -145,22 +145,22 @@ where
         _runner: R,
         _deserializer: &Deserializer,
         _serializer: &Serializer,
-    ) -> impl Runner<(Request<String>, String), (Response<String>, String)>
+    ) -> impl Runner<(Result<Request<String>>, String), (Result<Response<String>>, String)>
     where
         R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     {
-        move |req| {
+        move |req: Result<Request<String>>| {
             let pre = self.pre;
             let after = self.after;
             let runner = _runner.clone();
             async move {
-                let req_updated: InternalResult<Request<String>> = pre.call(Ok(req)).await.into();
+                let req_updated: InternalResult<Request<String>> =
+                    pre.call(req.into_inner()).await.into();
                 let runner_resp = runner.call_runner(req_updated).await;
                 let runner_resp_updated: InternalResult<Response<String>> =
                     after.call(runner_resp).await.into();
-                runner_resp_updated
+                runner_resp_updated.into()
             }
-            .map_ok_or_else(|e| e.into(), |ok| ok)
         }
     }
 }
@@ -280,7 +280,7 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "From middleware short-circuiting");
+        assert!(resp.unwrap_err().body() == "From middleware short-circuiting");
 
         Ok(())
     }
@@ -303,7 +303,7 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
+        assert!(resp.unwrap_err().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
 
         Ok(())
     }
@@ -326,7 +326,7 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "Error handled");
+        assert!(resp.unwrap_err().body() == "Error handled");
 
         Ok(())
     }
@@ -350,7 +350,12 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "Error handled on after error");
+        assert!(
+            resp.expect_err("Found a request where an error was expected")
+                .body()
+                .as_str()
+                == "Error handled on after error"
+        );
 
         Ok(())
     }
@@ -370,7 +375,7 @@ mod test {
             .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "Error handled on after error");
+        assert!(resp.unwrap_err().body() == "Error handled on after error");
 
         Ok(())
     }
