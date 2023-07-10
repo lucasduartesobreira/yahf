@@ -13,9 +13,15 @@ type StandardBodyType = String;
 pub type GenericRequest = Request<StandardBodyType>;
 pub type GenericResponse = Response<StandardBodyType>;
 pub type BoxedHandler = Box<
-    dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse> + Send>> + Sync + Send,
+    dyn Fn(
+            InternalResult<GenericRequest>,
+        ) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>>
+        + Sync
+        + Send,
 >;
-pub type RefHandler<'a> = &'a (dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse> + Send>>
+pub type RefHandler<'a> = &'a (dyn Fn(
+    InternalResult<GenericRequest>,
+) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>>
          + Sync
          + Send);
 
@@ -152,7 +158,7 @@ where
 pub trait Runner<Input, Output>: Clone + Send + Sync {
     fn call_runner(
         &'_ self,
-        run: Request<StandardBodyType>,
+        run: InternalResult<Request<StandardBodyType>>,
     ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_;
 }
 
@@ -171,12 +177,14 @@ where
     #[allow(clippy::manual_async_fn)]
     fn call_runner(
         &'_ self,
-        inp: Request<String>,
+        inp: InternalResult<Request<StandardBodyType>>,
     ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
         async move {
-            match FnIn::try_into(inp) {
+            let inp = inp.and_then(|inp| FnIn::try_into(inp));
+
+            match inp {
                 Ok(req) => FnOut::try_into(self(req).await),
-                Err(serde_error) => Err(serde_error),
+                Err(err) => Err(err),
             }
         }
     }
@@ -193,9 +201,12 @@ where
     #[allow(clippy::manual_async_fn)]
     fn call_runner(
         &'_ self,
-        _run: Request<StandardBodyType>,
+        _run: InternalResult<Request<StandardBodyType>>,
     ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
-        async move { FnOut::try_into(self().await) }
+        async move {
+            _run?;
+            FnOut::try_into(self().await)
+        }
     }
 }
 
@@ -262,7 +273,10 @@ pub(crate) fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>
     runner: R,
     _deserializer: &Deserializer,
     _serializer: &Serializer,
-) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Response<String>> + Send>> + Sync
+) -> impl Fn(
+    InternalResult<Request<String>>,
+) -> Pin<Box<dyn Future<Output = InternalResult<Response<String>>> + Send>>
+       + Sync
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     Deserializer: 'static,
@@ -275,15 +289,12 @@ where
 
 async fn call_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
-    req: Request<String>,
-) -> Response<String>
+    req: InternalResult<Request<String>>,
+) -> InternalResult<Response<String>>
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)>,
 {
-    match runner.call_runner(req).await {
-        Ok(resp) => resp,
-        Err(err) => err.into(),
-    }
+    runner.call_runner(req).await
 }
 
 #[cfg(test)]
@@ -348,10 +359,10 @@ mod tests {
         let a = encapsulate_runner(simple_handler, &Json::new(), &Json::new());
         let c = Request::builder()
             .body(serde_json::json!({ "field": "South of the border" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": "South of the border - Ed Sheeran"  }).to_string()
         );
 
@@ -363,12 +374,12 @@ mod tests {
         let a = encapsulate_runner(unit_handler, &(), &Json::new());
         let c = Request::builder()
             .body(serde_json::json!({ "field": "South of the border" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "HOPE - NF";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -380,12 +391,12 @@ mod tests {
         let a = encapsulate_runner(unit_handler_with_response_body, &(), &Json::new());
         let c = Request::builder()
             .body(serde_json::json!({ "field": "South of the border" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "HOPE - NF";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -396,12 +407,12 @@ mod tests {
     async fn test_simple_handler_with_body_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(simple_handler_with_body, &Json::new(), &Json::new());
         let c = Request::builder().body(serde_json::json!({ "field": "So Good" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "So Good - Halsey";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -416,12 +427,12 @@ mod tests {
             &Json::new(),
         );
         let c = Request::builder().body(serde_json::json!({ "field": "Sharks" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "Sharks - Imagine Dragons";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -436,12 +447,12 @@ mod tests {
             &Json::new(),
         );
         let c = Request::builder().body(serde_json::json!({ "field": "Venom" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "Venom - Eminem";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 

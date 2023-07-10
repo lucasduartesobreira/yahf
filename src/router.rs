@@ -320,7 +320,7 @@ mod test {
 
     mod utils {
         use crate::{
-            handler::RefHandler,
+            handler::{InternalResult, RefHandler},
             request::{Method, Request},
             response::Response,
         };
@@ -338,8 +338,8 @@ mod test {
 
         pub async fn run_runner(
             runner: RefHandler<'_>,
-            request: Request<String>,
-        ) -> Response<String> {
+            request: InternalResult<Request<String>>,
+        ) -> InternalResult<Response<String>> {
             runner(request).await
         }
     }
@@ -382,10 +382,10 @@ mod test {
 
                 assert!(handler.is_some());
 
-                let response = super::utils::run_runner(handler.unwrap(), request).await;
+                let response = super::utils::run_runner(handler.unwrap(), request.into()).await;
 
                 super::utils::test_runner_response(
-                    response.body().to_owned(),
+                    response.unwrap().body().to_owned(),
                     $expected_body.to_owned(),
                 );
 

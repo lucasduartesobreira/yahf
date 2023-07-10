@@ -155,10 +155,7 @@ where
             let runner = _runner.clone();
             async move {
                 let req_updated: InternalResult<Request<String>> = pre.call(Ok(req)).await.into();
-                let runner_resp = match req_updated {
-                    Ok(req) => runner.call_runner(req).await,
-                    Err(err) => Err(err),
-                };
+                let runner_resp = runner.call_runner(req_updated).await;
                 let runner_resp_updated: InternalResult<Response<String>> =
                     after.call(runner_resp).await.into();
                 runner_resp_updated
@@ -258,7 +255,7 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
         assert!(resp.unwrap().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom the after middleware");
@@ -280,7 +277,7 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
         assert!(resp.unwrap().body() == "From middleware short-circuiting");
@@ -303,7 +300,7 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
         assert!(resp.unwrap().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
@@ -326,7 +323,7 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
         assert!(resp.unwrap().body() == "Error handled");
@@ -350,7 +347,7 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
         assert!(resp.unwrap().body() == "Error handled on after error");
@@ -370,7 +367,7 @@ mod test {
             arc_middleware.build(runner_with_error, &(), &String::with_capacity(0));
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
         assert!(resp.unwrap().body() == "Error handled on after error");
