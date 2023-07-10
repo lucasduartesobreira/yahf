@@ -12,18 +12,8 @@ use crate::{error::Error, request::Request, response::Response};
 type StandardBodyType = String;
 pub type GenericRequest = Request<StandardBodyType>;
 pub type GenericResponse = Response<StandardBodyType>;
-pub type BoxedHandler = Box<
-    dyn Fn(
-            InternalResult<GenericRequest>,
-        ) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>>
-        + Sync
-        + Send,
->;
-pub type RefHandler<'a> = &'a (dyn Fn(
-    InternalResult<GenericRequest>,
-) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>>
-         + Sync
-         + Send);
+pub type BoxedHandler = Box<dyn BoxedRunner>;
+pub type RefHandler<'a> = &'a (dyn BoxedRunner);
 
 pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
 
@@ -269,6 +259,65 @@ impl BodySerializer for String {
     }
 }
 
+pub trait BoxedRunner: DynClone + Sync + Send {
+    fn call(
+        &self,
+        req: InternalResult<GenericRequest>,
+    ) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>>;
+}
+
+impl<F> BoxedRunner for F
+where
+    F: Fn(
+            InternalResult<Request<String>>,
+        ) -> Pin<Box<dyn Future<Output = InternalResult<Response<String>>> + Send>>
+        + Sync
+        + DynClone
+        + Send,
+{
+    fn call(
+        &self,
+        req: InternalResult<GenericRequest>,
+    ) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>> {
+        self(req)
+    }
+}
+
+pub trait DynClone {
+    fn clone_box(&self) -> Box<dyn BoxedRunner>;
+}
+
+impl<F> DynClone for F
+where
+    F: Fn(
+            InternalResult<Request<String>>,
+        ) -> Pin<Box<dyn Future<Output = InternalResult<Response<String>>> + Send>>
+        + Sync
+        + Clone
+        + Send
+        + 'static,
+{
+    fn clone_box(&self) -> Box<dyn BoxedRunner> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn BoxedRunner> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+impl Runner<(Request<String>, String), (Response<String>, String)> for Box<dyn BoxedRunner> {
+    #[allow(clippy::manual_async_fn)]
+    fn call_runner(
+        &'_ self,
+        run: InternalResult<Request<StandardBodyType>>,
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
+        async move { self.call(run).await }
+    }
+}
+
 pub(crate) fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
     _deserializer: &Deserializer,
@@ -277,6 +326,7 @@ pub(crate) fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>
     InternalResult<Request<String>>,
 ) -> Pin<Box<dyn Future<Output = InternalResult<Response<String>>> + Send>>
        + Sync
+       + DynClone
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     Deserializer: 'static,

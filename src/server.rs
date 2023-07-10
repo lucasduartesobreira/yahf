@@ -291,7 +291,8 @@ where
 
     let request = request_builder.body(body_string);
 
-    let response = handler(request.into())
+    let response = handler
+        .call(request.into())
         .await
         .map_or_else(|err| err.into(), |resp| resp);
 
@@ -408,7 +409,7 @@ mod test_server_routing {
 
         assert!(handler.is_some());
 
-        handler.unwrap()(req.into()).await.unwrap()
+        handler.unwrap().call(req.into()).await.unwrap()
     }
 
     #[async_test]
