@@ -1,6 +1,6 @@
 use http::{HeaderMap, HeaderValue};
 
-use crate::handler::Result;
+use crate::handler::InternalResult;
 
 pub type HttpResponse<T> = http::Response<T>;
 type HttpResponseBuilder = http::response::Builder;
@@ -54,8 +54,8 @@ impl<T> Response<T> {
     // TODO: Valuate if this will keep this fn or move to an from_parts style
     pub fn and_then<BodyType>(
         self,
-        callback: impl FnOnce(T) -> Result<BodyType>,
-    ) -> Result<Response<BodyType>> {
+        callback: impl FnOnce(T) -> InternalResult<BodyType>,
+    ) -> InternalResult<Response<BodyType>> {
         let (parts, body) = self.response.into_parts();
         callback(body).map(|body| Response {
             response: HttpResponse::from_parts(parts, body),
