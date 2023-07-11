@@ -168,8 +168,7 @@ where
         let response = match fut.await {
             Ok(resp) => resp,
             Err(err) => {
-                println!("{}", err);
-                format!("HTTP/1.1 {}", err)
+                format!("HTTP/1.1 {}\r\n\r\n", err)
             }
         };
 
