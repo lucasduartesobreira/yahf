@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use futures::{Future, TryFutureExt};
+use futures::Future;
 
 use crate::{
     handler::{InternalResult, Result, Runner},
@@ -20,14 +20,14 @@ impl From<Response<String>> for InternalResult<Response<String>> {
     }
 }
 
-pub trait PreMiddleware: Send + Sync + Clone {
+pub trait PreMiddleware: Send + Sync + Copy {
     type FutCallResponse;
     fn call(&self, error: InternalResult<Request<String>>) -> Self::FutCallResponse;
 }
 
 impl<MidFn, Fut, CF> PreMiddleware for MidFn
 where
-    MidFn: Fn(Result<Request<String>>) -> Fut + Send + Sync + Clone,
+    MidFn: Fn(Result<Request<String>>) -> Fut + Send + Sync + Copy,
     Fut: Future<Output = CF>,
     CF: Into<InternalResult<Request<String>>>,
 {
@@ -39,14 +39,14 @@ where
     }
 }
 
-pub trait AfterMiddleware: Send + Sync + Clone {
+pub trait AfterMiddleware: Send + Sync + Copy {
     type FutCallResponse;
     fn call(&self, error: InternalResult<Response<String>>) -> Self::FutCallResponse;
 }
 
 impl<MidFn, Fut, CF> AfterMiddleware for MidFn
 where
-    MidFn: Fn(Result<Response<String>>) -> Fut + Send + Sync + Clone,
+    MidFn: Fn(Result<Response<String>>) -> Fut + Send + Sync + Copy,
     Fut: Future<Output = CF>,
     CF: Into<InternalResult<Response<String>>>,
 {
@@ -58,7 +58,7 @@ where
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct MiddlewareFactory<FPre, FAfter> {
     pre: FPre,
     after: FAfter,
@@ -92,8 +92,8 @@ impl MiddlewareFactory<(), ()> {
 
 impl<FPre, FAfter, F, FA, CF, CFA> MiddlewareFactory<FPre, FAfter>
 where
-    FPre: PreMiddleware<FutCallResponse = F> + 'static,
-    FAfter: AfterMiddleware<FutCallResponse = FA> + 'static,
+    FPre: PreMiddleware<FutCallResponse = F>,
+    FAfter: AfterMiddleware<FutCallResponse = FA>,
     F: Future<Output = CF> + Send,
     CF: Into<InternalResult<Request<String>>> + Send,
     CFA: Into<InternalResult<Response<String>>> + Send,
@@ -102,11 +102,11 @@ where
     #[inline(always)]
     pub fn pre<NewF: Future<Output = NewCF>, NewCF: Into<InternalResult<Request<String>>>>(
         self,
-        other_pre: &'static (impl PreMiddleware<FutCallResponse = NewF> + Sync),
+        other_pre: impl PreMiddleware<FutCallResponse = NewF> + Sync + Copy,
     ) -> MiddlewareFactory<impl PreMiddleware<FutCallResponse = impl Future<Output = NewCF>>, FAfter>
     {
         let pre = move |req: Result<Request<String>>| {
-            let cloned_pre_middleware = self.pre.clone();
+            let cloned_pre_middleware = self.pre;
             async move {
                 let resp = cloned_pre_middleware.call(req.into()).await;
                 let resp_internal_result: InternalResult<Request<String>> = resp.into();
@@ -123,11 +123,11 @@ where
     #[inline(always)]
     pub fn after<NewF: Future<Output = NewCFA>, NewCFA: Into<InternalResult<Response<String>>>>(
         self,
-        other_after: &'static (impl AfterMiddleware<FutCallResponse = NewF> + Sync),
+        other_after: impl AfterMiddleware<FutCallResponse = NewF> + Sync + Copy,
     ) -> MiddlewareFactory<FPre, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewCFA>>>
     {
         let after = move |res: Result<Response<String>>| {
-            let cloned_after_middleware = self.after.clone();
+            let cloned_after_middleware = self.after;
             async move {
                 let resp = cloned_after_middleware.call(res.into()).await;
                 other_after.call(resp.into()).await
@@ -145,25 +145,22 @@ where
         _runner: R,
         _deserializer: &Deserializer,
         _serializer: &Serializer,
-    ) -> impl Runner<(Request<String>, String), (Response<String>, String)>
+    ) -> impl Runner<(Result<Request<String>>, String), (Result<Response<String>>, String)>
     where
         R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     {
-        move |req| {
-            let pre = self.pre.clone();
-            let after = self.after.clone();
+        move |req: Result<Request<String>>| {
+            let pre = self.pre;
+            let after = self.after;
             let runner = _runner.clone();
             async move {
-                let req_updated: InternalResult<Request<String>> = pre.call(Ok(req)).await.into();
-                let runner_resp = match req_updated {
-                    Ok(req) => runner.call_runner(req).await,
-                    Err(err) => Err(err),
-                };
+                let req_updated: InternalResult<Request<String>> =
+                    pre.call(req.into_inner()).await.into();
+                let runner_resp = runner.call_runner(req_updated).await;
                 let runner_resp_updated: InternalResult<Response<String>> =
                     after.call(runner_resp).await.into();
-                runner_resp_updated
+                runner_resp_updated.into()
             }
-            .map_ok_or_else(|e| e.into(), |ok| ok)
         }
     }
 }
@@ -258,7 +255,7 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
         assert!(resp.unwrap().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom the after middleware");
@@ -280,10 +277,10 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "From middleware short-circuiting");
+        assert!(resp.unwrap_err().body() == "From middleware short-circuiting");
 
         Ok(())
     }
@@ -303,10 +300,10 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
+        assert!(resp.unwrap_err().body() == "From pure request\nFrom middleware\nFrom the handler\nFrom middleware short-circuiting");
 
         Ok(())
     }
@@ -326,10 +323,10 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "Error handled");
+        assert!(resp.unwrap_err().body() == "Error handled");
 
         Ok(())
     }
@@ -350,10 +347,15 @@ mod test {
         );
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "Error handled on after error");
+        assert!(
+            resp.expect_err("Found a request where an error was expected")
+                .body()
+                .as_str()
+                == "Error handled on after error"
+        );
 
         Ok(())
     }
@@ -370,10 +372,10 @@ mod test {
             arc_middleware.build(runner_with_error, &(), &String::with_capacity(0));
 
         let resp = updated_handler
-            .call_runner(Request::new("From pure request".to_owned()))
+            .call_runner(Request::new("From pure request".to_owned()).into())
             .await;
 
-        assert!(resp.unwrap().body() == "Error handled on after error");
+        assert!(resp.unwrap_err().body() == "Error handled on after error");
 
         Ok(())
     }
