@@ -230,10 +230,10 @@ where
             }
         };
 
-        stream
+        let _ = stream
             .write_all(response.as_bytes())
             .await;
-        stream.flush().await;
+        let _ = stream.flush().await;
     })
 }
 
