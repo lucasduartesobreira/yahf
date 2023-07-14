@@ -50,12 +50,13 @@ impl Router<(), ()> {
 macro_rules! method_insert {
     ($fn: ident, $method: expr) => {
         pub fn $fn<FnIn, FnOut, Deserializer, Serializer, R>(
-            &mut self,
+            self,
             path: &'static str,
             handler: R,
             deserializer: &Deserializer,
             serializer: &Serializer,
-        ) where
+        ) -> Self
+        where
             R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
             FnIn: 'static,
             FnOut: 'static,
@@ -174,13 +175,14 @@ where
     }
 
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
+        mut self,
         method: Method,
         path: &'static str,
         handler: R,
         deserializer: &Deserializer,
         serializer: &Serializer,
-    ) where
+    ) -> Self
+    where
         R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
         FnIn: 'static,
         FnOut: 'static,
@@ -225,7 +227,9 @@ where
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
             _ => unreachable!("HTTP methods allowed: GET, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH, HEAD"),
-        }
+        };
+
+        self
     }
 
     method_insert!(get, Method::GET);
@@ -239,27 +243,30 @@ where
     method_insert!(head, Method::HEAD);
 
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
+        self,
         path: &'static str,
         handler: R,
         deserializer: &Deserializer,
         serializer: &Serializer,
-    ) where
+    ) -> Self
+    where
         R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
         FnIn: 'static,
         FnOut: 'static,
         Deserializer: 'static,
         Serializer: 'static,
     {
-        self.get(path, handler.clone(), deserializer, serializer);
-        self.put(path, handler.clone(), deserializer, serializer);
-        self.delete(path, handler.clone(), deserializer, serializer);
-        self.post(path, handler.clone(), deserializer, serializer);
-        self.trace(path, handler.clone(), deserializer, serializer);
-        self.options(path, handler.clone(), deserializer, serializer);
-        self.connect(path, handler.clone(), deserializer, serializer);
-        self.patch(path, handler.clone(), deserializer, serializer);
-        self.head(path, handler, deserializer, serializer);
+        let router = self.get(path, handler.clone(), deserializer, serializer);
+        let router = router.put(path, handler.clone(), deserializer, serializer);
+        let router = router.delete(path, handler.clone(), deserializer, serializer);
+        let router = router.post(path, handler.clone(), deserializer, serializer);
+        let router = router.trace(path, handler.clone(), deserializer, serializer);
+        let router = router.options(path, handler.clone(), deserializer, serializer);
+        let router = router.connect(path, handler.clone(), deserializer, serializer);
+        let router = router.patch(path, handler.clone(), deserializer, serializer);
+        let router = router.head(path, handler, deserializer, serializer);
+
+        router
     }
 
     #[allow(dead_code)]
@@ -378,7 +385,7 @@ mod test {
 
     macro_rules! test_router_insert_and_find {
         ($test_name: ident, $router_method: expr, $method: expr, $runner: expr,$des: expr, $body: literal, $expected_body: literal, [$($pre: expr),*], ($($after:expr),*)) => {
-            #[async_test]
+            #[async_std_test::async_test]
             async fn $test_name() -> std::io::Result<()> {
                 let request = super::utils::create_request($body.to_owned(), $method);
                 let router = Router::new();
@@ -388,10 +395,8 @@ mod test {
                     [$($pre),*],
                     ($($after),*)
                 );
-                let mut router = router;
-                let router = &mut router;
-                $router_method(router, "/path/to", $runner, $des, &String::with_capacity(0));
-                let handler = Router::find_route(router, request.method(), "/path/to");
+                let router = $router_method(router, "/path/to", $runner, $des, &String::with_capacity(0));
+                let handler = Router::find_route(&router, request.method(), "/path/to");
 
                 assert!(handler.is_some());
 
@@ -415,7 +420,6 @@ mod test {
             mod $mod_name {
                 use crate::request::Method;
                 use crate::router::Router;
-                use async_std_test::async_test;
 
                 test_router_insert_and_find!(
                     test_insert_and_find_runner_void_string,
@@ -600,8 +604,6 @@ mod test {
                         Router,
                     },
                 };
-
-                use async_std_test::async_test;
 
                 test_router_insert_and_find!(
                     test_pre_transform,

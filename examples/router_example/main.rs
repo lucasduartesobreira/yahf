@@ -67,13 +67,17 @@ async fn second_computation(req: ComputationBody) -> ComputationBody {
 }
 
 fn main() {
-    let mut router = Router::new().pre(log_middleware);
-    router.get("/first", first_computation, &Json::new(), &Json::new());
+    let router = Router::new().pre(log_middleware).get(
+        "/first",
+        first_computation,
+        &Json::new(),
+        &Json::new(),
+    );
 
-    let mut server = Server::new().after(log_error);
-    server.get("/second", second_computation, &Json::new(), &Json::new());
-
-    let server = server.router(router);
+    let server = Server::new()
+        .after(log_error)
+        .get("/second", second_computation, &Json::new(), &Json::new())
+        .router(router);
 
     server.listen("localhost:8000").unwrap();
 }

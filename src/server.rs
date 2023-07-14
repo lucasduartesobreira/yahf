@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    handler::InternalResult,
+    handler::{InternalResult, Runner},
     middleware::{AfterMiddleware, PreMiddleware},
     request::{self, HttpHeaderName, HttpHeaderValue, Request, Uri},
     response::Response,
@@ -68,6 +68,30 @@ impl Server<(), ()> {
     }
 }
 
+macro_rules! method_reroute {
+    ($method: ident) => {
+        pub fn $method<FnIn, FnOut, Deserializer, Serializer, R>(
+            mut self,
+            path: &'static str,
+            handler: R,
+            deserializer: &Deserializer,
+            serializer: &Serializer,
+        ) -> Self
+        where
+            R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+            FnIn: 'static,
+            FnOut: 'static,
+            Deserializer: 'static,
+            Serializer: 'static,
+        {
+            let router = self.router;
+            let router = router.$method(path, handler, deserializer, serializer);
+            self.router = router;
+            self
+        }
+    };
+}
+
 impl<PreM, FutP, ResultP, AfterM, FutA, ResultA> Server<PreM, AfterM>
 where
     PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
@@ -77,6 +101,38 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
+    method_reroute!(get);
+    method_reroute!(put);
+    method_reroute!(delete);
+    method_reroute!(post);
+    method_reroute!(trace);
+    method_reroute!(options);
+    method_reroute!(connect);
+    method_reroute!(patch);
+    method_reroute!(head);
+    method_reroute!(all);
+
+    pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
+        mut self,
+        method: Method,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) -> Self
+    where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        let router = self.router;
+        let router = router.method(method, path, handler, deserializer, serializer);
+        self.router = router;
+        self
+    }
+
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         self,
         router: Router<OtherPreM, OtherAfterM>,
@@ -412,9 +468,9 @@ mod test_server_routing {
 
     #[async_test]
     async fn test_handler_receiving_req_and_res() -> std::io::Result<()> {
-        let mut server = Server::new();
+        let server = Server::new();
 
-        server.method(
+        let server = server.method(
             Method::GET,
             "/aaaa/bbbb",
             test_handler_with_req_and_res,
@@ -438,9 +494,9 @@ mod test_server_routing {
 
     #[async_test]
     async fn test_server_fn_all() -> std::io::Result<()> {
-        let mut server = Server::new();
+        let server = Server::new();
 
-        server.all(
+        let server = server.all(
             "/test/all",
             test_handler_with_req_and_res,
             &Json::new(),
@@ -535,9 +591,9 @@ mod test_server_routing {
         ($sla:tt, $mtd:ident, $upper_mtd:ident) => {
     #[async_test]
     async fn $sla() -> std::io::Result<()> {
-        let mut server = Server::new();
+        let  server = Server::new();
 
-        server.$mtd(
+        let server = server.$mtd(
             "/test/all",
             test_handler_with_req_and_res,
             &Json::new(),
@@ -672,8 +728,8 @@ mod test_connection_loop {
         ($test_name: tt, $fn: ident, $des: expr) => {
     #[async_test]
     async fn $test_name() -> std::io::Result<()> {
-        let mut server = Server::new();
-        server.all(
+        let  server = Server::new();
+        let server = server.all(
             "/aaaaa",
             $fn,
             &$des,
@@ -757,8 +813,8 @@ mod test_connection_loop {
         ($test_name:ident, $fn: ident, $des: expr, $send:literal, $expected: literal) => {
             #[async_test]
             async fn $test_name() -> std::io::Result<()> {
-                let mut server = Server::new();
-                server.all("/aaaaa", $fn, &$des, &Json::default());
+                let server = Server::new();
+                let server = server.all("/aaaaa", $fn, &$des, &Json::default());
 
                 let server = Arc::new(server);
 
