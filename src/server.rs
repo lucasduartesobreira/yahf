@@ -196,7 +196,9 @@ where
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
     let server = Arc::new(server);
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let listener = TcpListener::bind(addr)
+        .await
+        .unwrap();
     println!("Start listening on {}", listener.local_addr().unwrap());
     let mut incoming = listener.incoming();
 
@@ -228,7 +230,9 @@ where
             }
         };
 
-        stream.write_all(response.as_bytes()).await;
+        stream
+            .write_all(response.as_bytes())
+            .await;
         stream.flush().await;
     })
 }
@@ -297,7 +301,9 @@ where
         None => Err(NOT_FOUND)?,
     };
 
-    let mut request_builder = request_builder.method(method).uri(uri);
+    let mut request_builder = request_builder
+        .method(method)
+        .uri(uri);
     let mut content_length = 0usize;
 
     loop {
@@ -318,7 +324,10 @@ where
         match splitted_header {
             Some((header, value)) if http::header::CONTENT_LENGTH == header => {
                 request_builder = request_builder.header("Content-Length", value);
-                content_length = value.trim().parse::<usize>().unwrap();
+                content_length = value
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap();
             }
             Some((header, value)) => {
                 match (
@@ -353,7 +362,10 @@ where
     let response_string = format!(
         "HTTP/1.1 {} {}\r\n{}\r\n{}",
         response.status().as_u16(),
-        response.status().canonical_reason().unwrap(),
+        response
+            .status()
+            .canonical_reason()
+            .unwrap(),
         response
             .headers()
             .into_iter()
@@ -389,7 +401,10 @@ mod test_utils {
         ) -> Poll<Result<usize, Error>> {
             let size: usize = min(self.read_data.len(), buf.len());
             buf[..size].copy_from_slice(&self.read_data[..size]);
-            self.read_data = self.read_data.drain(size..).collect::<Vec<_>>();
+            self.read_data = self
+                .read_data
+                .drain(size..)
+                .collect::<Vec<_>>();
             Poll::Ready(Ok(size))
         }
     }
@@ -463,7 +478,11 @@ mod test_server_routing {
 
         assert!(handler.is_some());
 
-        handler.unwrap().call(req.into()).await.unwrap()
+        handler
+            .unwrap()
+            .call(req.into())
+            .await
+            .unwrap()
     }
 
     #[async_test]
@@ -506,7 +525,9 @@ mod test_server_routing {
         let req_body = serde_json::json!({ "correct": false }).to_string();
         let expected_res_body = serde_json::json!({ "correct": true }).to_string();
 
-        let request = Request::builder().uri("/test/all").body(req_body.clone());
+        let request = Request::builder()
+            .uri("/test/all")
+            .body(req_body.clone());
 
         let response = run_test(&server, request).await;
 
@@ -711,7 +732,9 @@ mod test_connection_loop {
         // TODO: Implement ToString for Response
         let expected_contents = response.body();
         let expected_status_code = response.status().as_u16();
-        let expected_status_message = response.status().canonical_reason();
+        let expected_status_message = response
+            .status()
+            .canonical_reason();
         let expected_response = format!(
             "HTTP/1.1 {} {}\r\n\r\n{}",
             expected_status_code,
@@ -805,7 +828,9 @@ mod test_connection_loop {
         println!("{:?}", error);
         match error {
             Ok(res) => assert!(res.starts_with(&response)),
-            Err(err) => assert!(err.to_string().starts_with(response.as_str())),
+            Err(err) => assert!(err
+                .to_string()
+                .starts_with(response.as_str())),
         }
     }
 

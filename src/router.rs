@@ -63,10 +63,10 @@ macro_rules! method_insert {
             Deserializer: 'static,
             Serializer: 'static,
         {
-            let built_with_middleware =
-                self.middleware_factory
-                    .clone()
-                    .build(handler, deserializer, serializer);
+            let built_with_middleware = self
+                .middleware_factory
+                .clone()
+                .build(handler, deserializer, serializer);
 
             self.method(
                 $method,
@@ -111,7 +111,12 @@ where
             router.patch,
             router.head,
         ]
-        .map(|handler| handler.apply(self.middleware_factory.clone()));
+        .map(|handler| {
+            handler.apply(
+                self.middleware_factory
+                    .clone(),
+            )
+        });
 
         self.get.extend(get);
         self.put.extend(put);
@@ -135,7 +140,9 @@ where
         NewFut: Future<Output = NewResultP>,
         NewResultP: Into<InternalResult<Request<String>>>,
     {
-        let new_factory = self.middleware_factory.pre(middleware);
+        let new_factory = self
+            .middleware_factory
+            .pre(middleware);
         Router {
             middleware_factory: Arc::new(new_factory),
             get: self.get,
@@ -159,7 +166,9 @@ where
         NewFut: Future<Output = NewResultA>,
         NewResultA: Into<InternalResult<Response<String>>>,
     {
-        let new_factory = self.middleware_factory.after(middleware);
+        let new_factory = self
+            .middleware_factory
+            .after(middleware);
         Router {
             middleware_factory: Arc::new(new_factory),
             get: self.get,
@@ -568,7 +577,9 @@ mod test {
         use crate::response::Response;
 
         pub async fn pre_transform(req: Result<Request<String>>) -> Result<Request<String>> {
-            req.into_inner().map(|_| Request::new("PM1".into())).into()
+            req.into_inner()
+                .map(|_| Request::new("PM1".into()))
+                .into()
         }
 
         pub async fn pre_generate_error(_req: Result<Request<String>>) -> Result<Request<String>> {
@@ -576,11 +587,16 @@ mod test {
         }
 
         pub async fn pre_handle_error(req: Result<Request<String>>) -> Result<Request<String>> {
-            Ok(req.into_inner().unwrap_or(Request::new("PM3".into()))).into()
+            Ok(req
+                .into_inner()
+                .unwrap_or(Request::new("PM3".into())))
+            .into()
         }
 
         pub async fn after_transform(res: Result<Response<String>>) -> Result<Response<String>> {
-            res.into_inner().map(|_| Response::new("AM1".into())).into()
+            res.into_inner()
+                .map(|_| Response::new("AM1".into()))
+                .into()
         }
 
         pub async fn after_generate_error(
@@ -590,7 +606,10 @@ mod test {
         }
 
         pub async fn after_handle_error(res: Result<Response<String>>) -> Result<Response<String>> {
-            Ok(res.into_inner().unwrap_or(Response::new("AM3".into()))).into()
+            Ok(res
+                .into_inner()
+                .unwrap_or(Response::new("AM3".into())))
+            .into()
         }
     }
 

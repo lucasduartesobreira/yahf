@@ -22,6 +22,8 @@ impl Error {
 
 impl From<Error> for Response<String> {
     fn from(val: Error) -> Self {
-        Response::builder().status(val.code).body(val.body)
+        Response::builder()
+            .status(val.code)
+            .body(val.body)
     }
 }

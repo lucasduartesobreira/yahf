@@ -10,5 +10,6 @@ fn main() {
         &String::with_capacity(0),
     );
 
-    a.listen("localhost:8000").unwrap();
+    a.listen("localhost:8000")
+        .unwrap();
 }
