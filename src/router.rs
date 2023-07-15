@@ -273,9 +273,8 @@ where
         let router = router.options(path, handler.clone(), deserializer, serializer);
         let router = router.connect(path, handler.clone(), deserializer, serializer);
         let router = router.patch(path, handler.clone(), deserializer, serializer);
-        let router = router.head(path, handler, deserializer, serializer);
 
-        router
+        router.head(path, handler, deserializer, serializer)
     }
 
     #[allow(dead_code)]
