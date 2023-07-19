@@ -226,7 +226,7 @@ where
         let response = match fut.await {
             Ok(resp) => resp,
             Err(err) => {
-                format!("HTTP/1.1 {}\r\n\r\n", err)
+                format!("HTTP/1.1 {}\r\ncontent-length:0\r\n\r\n", err)
             }
         };
 
