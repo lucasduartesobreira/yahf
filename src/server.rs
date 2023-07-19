@@ -742,9 +742,10 @@ mod test_connection_loop {
             .status()
             .canonical_reason();
         let expected_response = format!(
-            "HTTP/1.1 {} {}\r\n\r\n{}",
+            "HTTP/1.1 {} {}\r\ncontent-length:{}\r\n\r\n{}",
             expected_status_code,
             expected_status_message.unwrap(),
+            expected_contents.len(),
             expected_contents
         );
 
