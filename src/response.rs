@@ -73,4 +73,8 @@ impl<T> Response<T> {
     pub fn headers(&self) -> &HeaderMap<HeaderValue> {
         self.response.headers()
     }
+
+    pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
+        self.response.headers_mut()
+    }
 }

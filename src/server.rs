@@ -354,22 +354,28 @@ where
 
     let request = request_builder.body(body_string);
 
-    let response = handler
+    let mut response = handler
         .call(request.into())
         .await
         .map_or_else(|err| err.into(), |resp| resp);
 
+    let content_size = response.body().len();
+    response
+        .headers_mut()
+        .append("Content-Length", content_size.into());
+
+    let status = response.status();
+
     let response_string = format!(
         "HTTP/1.1 {} {}\r\n{}\r\n{}",
-        response.status().as_u16(),
-        response
-            .status()
+        status.as_u16(),
+        status
             .canonical_reason()
             .unwrap(),
         response
             .headers()
             .into_iter()
-            .fold(String::new(), |mut acc, (name, value)| {
+            .fold(String::with_capacity(1024), |mut acc, (name, value)| {
                 acc.push_str(format!("{}:{}\r\n", name, value.to_str().unwrap()).as_str());
                 acc
             }),
