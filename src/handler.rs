@@ -74,7 +74,7 @@ pub trait BodyDeserializer {
 pub trait BodySerializer {
     type Item;
 
-    fn serialize(content: &Self::Item) -> InternalResult<StandardBodyType>;
+    fn serialize(content: Self::Item) -> InternalResult<StandardBodyType>;
 }
 
 /// Describes a type that can be extracted using a BodyExtractors
@@ -134,7 +134,7 @@ where
     BodyType: Serialize,
 {
     fn try_into(self) -> InternalResult<Response<String>> {
-        self.and_then(|body| Serializer::serialize(&body))
+        self.and_then(|body| Serializer::serialize(body))
     }
 }
 
@@ -144,7 +144,7 @@ where
     BodyType: Serialize,
 {
     fn try_into(self) -> InternalResult<Response<String>> {
-        Serializer::serialize(&self).map(Response::new)
+        Serializer::serialize(self).map(Response::new)
     }
 }
 
@@ -250,8 +250,8 @@ where
 {
     type Item = T;
 
-    fn serialize(content: &Self::Item) -> InternalResult<String> {
-        serde_json::to_string(content).map_err(|err| Error::new(err.to_string(), 422))
+    fn serialize(content: Self::Item) -> InternalResult<String> {
+        serde_json::to_string(&content).map_err(|err| Error::new(err.to_string(), 422))
     }
 }
 
@@ -269,7 +269,7 @@ impl BodyDeserializer for String {
 impl BodySerializer for String {
     type Item = String;
 
-    fn serialize(content: &Self::Item) -> InternalResult<StandardBodyType> {
+    fn serialize(content: Self::Item) -> InternalResult<StandardBodyType> {
         Ok(content.to_owned())
     }
 }
