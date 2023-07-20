@@ -74,8 +74,8 @@ impl Request<()> {
     pub async fn from_stream(
         mut stream: &mut (impl AsyncRead + Unpin),
     ) -> std::result::Result<Request<String>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut buf_reader = BufReader::new(&mut stream);
-        let mut first = String::with_capacity(1024);
+        let mut buf_reader = BufReader::with_capacity(1024, &mut stream);
+        let mut first = String::with_capacity(256);
         buf_reader
             .read_line(&mut first)
             .await
@@ -118,8 +118,9 @@ impl Request<()> {
 
         let mut content_length = 0usize;
 
+        let mut line = fl;
+        line.clear();
         loop {
-            let mut line = String::with_capacity(100);
             buf_reader
                 .read_line(&mut line)
                 .await
@@ -154,6 +155,8 @@ impl Request<()> {
                 }
                 None => Err("400 Bad Request")?,
             }
+
+            line.clear()
         }
 
         let mut body_string = vec![0u8; content_length];
