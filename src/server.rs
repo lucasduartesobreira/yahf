@@ -7,11 +7,11 @@ use std::{
 use crate::{
     handler::{InternalResult, Runner},
     middleware::{AfterMiddleware, PreMiddleware},
-    request::{self, HttpHeaderName, HttpHeaderValue, Request, Uri},
+    request::{self, Request},
     response::Response,
     router::Router,
 };
-use async_std::io::BufReader;
+
 use async_std::net::{TcpListener, ToSocketAddrs};
 use async_std::prelude::*;
 use async_std::task;
@@ -237,9 +237,7 @@ where
     })
 }
 
-const BAD_REQUEST: &str = "400 Bad Request";
 const NOT_FOUND: &str = "404 Not Found";
-const HTTP_VERSION_NOT_SUPPORTED: &str = "505 HTTP Version Not Supported";
 
 async fn connection_loop<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
     server: Arc<Server<PreM, AfterM>>,
@@ -253,135 +251,26 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
-    let mut buf_reader = BufReader::new(&mut stream);
-    let mut first = String::with_capacity(1024);
-    buf_reader
-        .read_line(&mut first)
-        .await
-        .map_err(|_| BAD_REQUEST)?;
+    let request = Request::from_stream(&mut stream).await?;
 
-    let request_builder = Request::builder();
-
-    first.pop();
-    first.pop();
-    let fl = first;
-
-    let mut splitted_fl = fl.split(' ');
-    let method = match splitted_fl.next() {
-        Some(mtd) => Method::try_from(mtd).map_err(|_| BAD_REQUEST)?,
-        None => Err(BAD_REQUEST)?,
-    };
-
-    let method = match method {
-        Method::GET => method,
-        Method::PUT => method,
-        Method::POST => method,
-        Method::DELETE => method,
-        Method::OPTIONS => method,
-        Method::HEAD => method,
-        Method::TRACE => method,
-        Method::PATCH => method,
-        Method::CONNECT => method,
-        _ => Err(BAD_REQUEST)?,
-    };
-
-    let uri = match splitted_fl.next() {
-        Some(mtd) => Uri::try_from(mtd).map_err(|_| BAD_REQUEST)?,
-        None => Err(BAD_REQUEST)?,
-    };
-
-    match splitted_fl.next() {
-        Some("HTTP/1.1") => (),
-        _ => Err(HTTP_VERSION_NOT_SUPPORTED)?,
-    };
-
-    let handler = server.find_route(&method, &uri.to_string());
+    let handler = server.find_route(
+        request.method(),
+        request
+            .uri()
+            .to_string()
+            .as_str(),
+    );
     let handler = match handler {
         Some(handler) => handler,
         None => Err(NOT_FOUND)?,
     };
 
-    let mut request_builder = request_builder
-        .method(method)
-        .uri(uri);
-    let mut content_length = 0usize;
-
-    loop {
-        let mut line = String::with_capacity(100);
-        buf_reader
-            .read_line(&mut line)
-            .await
-            .map_err(|_| BAD_REQUEST)?;
-
-        line.pop();
-        line.pop();
-
-        if line.is_empty() {
-            break;
-        }
-
-        let splitted_header = line.split_once(':');
-        match splitted_header {
-            Some((header, value)) if http::header::CONTENT_LENGTH == header => {
-                request_builder = request_builder.header("Content-Length", value);
-                content_length = value
-                    .trim()
-                    .parse::<usize>()
-                    .unwrap();
-            }
-            Some((header, value)) => {
-                match (
-                    HttpHeaderName::try_from(header.trim()),
-                    HttpHeaderValue::try_from(value.trim()),
-                ) {
-                    (Ok(header), Ok(value)) => {
-                        request_builder = request_builder.header(header, value);
-                    }
-                    _ => Err("400 Bad Request")?,
-                }
-            }
-            None => Err("400 Bad Request")?,
-        }
-    }
-
-    let mut body_string = vec![0u8; content_length];
-    buf_reader
-        .read_exact(&mut body_string)
-        .await
-        .map_err(|_| BAD_REQUEST)?;
-
-    let body_string = String::from_utf8(body_string)?;
-
-    let request = request_builder.body(body_string);
-
-    let mut response = handler
+    let response = handler
         .call(request.into())
         .await
         .map_or_else(|err| err.into(), |resp| resp);
 
-    let content_size = response.body().len();
-    response
-        .headers_mut()
-        .append("Content-Length", content_size.into());
-
-    let status = response.status();
-
-    let response_string = format!(
-        "HTTP/1.1 {} {}\r\n{}\r\n{}",
-        status.as_u16(),
-        status
-            .canonical_reason()
-            .unwrap(),
-        response
-            .headers()
-            .into_iter()
-            .fold(String::with_capacity(1024), |mut acc, (name, value)| {
-                acc.push_str(format!("{}:{}\r\n", name, value.to_str().unwrap()).as_str());
-                acc
-            }),
-        response.body()
-    );
-
+    let response_string = response.format();
     Ok(response_string)
 }
 
