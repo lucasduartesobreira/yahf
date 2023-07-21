@@ -108,4 +108,8 @@ impl Response<String> {
 
         response_string
     }
+
+    pub fn into_inner(self) -> HttpResponse<String> {
+        self.response
+    }
 }

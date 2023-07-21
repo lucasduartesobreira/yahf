@@ -1,15 +1,19 @@
 extern crate yahf;
 
-use yahf::server::Server;
+use std::net::SocketAddr;
 
-fn main() {
-    let a = Server::new().get(
+use yahf::server_hyper::HyperServer;
+
+#[tokio::main]
+async fn main() {
+    let a = HyperServer::new().get(
         "/",
         || async { "Hello world".to_string() },
         &(),
         &String::with_capacity(0),
     );
 
-    a.listen("localhost:8000")
+    a.listen(SocketAddr::from(([127, 0, 0, 1], 8000)))
+        .await
         .unwrap();
 }
