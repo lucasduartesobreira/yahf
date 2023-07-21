@@ -66,7 +66,8 @@ async fn second_computation(req: ComputationBody) -> ComputationBody {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let router = Router::new()
         .pre(log_middleware)
         .get("/first", first_computation, &Json::new(), &Json::new());
@@ -77,6 +78,7 @@ fn main() {
         .router(router);
 
     server
-        .listen("localhost:8000")
+        .listen(([127, 0, 0, 1], 8000).into())
+        .await
         .unwrap();
 }

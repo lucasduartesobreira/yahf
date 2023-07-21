@@ -1,5 +1,5 @@
 use std::{
-    fmt::Display,
+    convert::Infallible,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
@@ -12,11 +12,14 @@ use crate::{
     router::Router,
 };
 
-use async_std::net::{TcpListener, ToSocketAddrs};
 use async_std::prelude::*;
-use async_std::task;
 
-use futures::{AsyncRead, AsyncWrite, StreamExt};
+use http::StatusCode;
+use hyper::{
+    server::conn::AddrStream,
+    service::{make_service_fn, service_fn},
+};
+
 use request::Method;
 
 pub struct Server<PreM, AfterM> {
@@ -177,42 +180,24 @@ where
         Server { router: new_router }
     }
 
-    pub fn listen<A: ToSocketAddrs + Display>(self, addr: A) -> ListenResult<()> {
-        task::block_on(accept_loop(self, addr))
+    pub async fn listen(self, addr: std::net::SocketAddr) -> Result<(), hyper::Error> {
+        let server = Arc::new(self);
+        let make_svc = make_service_fn(move |_: &AddrStream| {
+            let server = server.clone();
+            let service = service_fn(move |req| handle_req(server.clone(), req));
+            async move { Ok::<_, Infallible>(service) }
+        });
+
+        let server = hyper::Server::bind(&addr).serve(make_svc);
+        server.await?;
+        Ok(())
     }
 }
-type ListenResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-async fn accept_loop<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
-    server: Server<PreM, AfterM>,
-    addr: impl ToSocketAddrs + Display,
-) -> ListenResult<()>
-where
-    PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
-    FutP: Future<Output = ResultP> + std::marker::Send + 'static,
-    ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
-    AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
-    FutA: Future<Output = ResultA> + std::marker::Send + 'static,
-    ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
-{
-    let server = Arc::new(server);
-    let listener = TcpListener::bind(addr)
-        .await
-        .unwrap();
-    println!("Start listening on {}", listener.local_addr().unwrap());
-    let mut incoming = listener.incoming();
-
-    while let Some(stream) = incoming.next().await {
-        let stream = stream?;
-        handle_stream(server.clone(), stream);
-    }
-    Ok(())
-}
-
-fn handle_stream<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+async fn handle_req<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
     server: Arc<Server<PreM, AfterM>>,
-    mut stream: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
-) -> async_std::task::JoinHandle<()>
+    req: hyper::Request<hyper::Body>,
+) -> Result<hyper::Response<hyper::Body>, Infallible>
 where
     PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
     FutP: Future<Output = ResultP> + std::marker::Send + 'static,
@@ -221,818 +206,49 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
-    task::spawn(async move {
-        let fut = connection_loop(server, &mut stream);
-        let response = match fut.await {
-            Ok(resp) => resp,
-            Err(err) => {
-                format!("HTTP/1.1 {}\r\ncontent-length:0\r\n\r\n", err)
-            }
-        };
+    let handler = server.find_route(req.method(), req.uri().path());
 
-        let _ = stream
-            .write_all(response.as_bytes())
-            .await;
-        let _ = stream.flush().await;
-    })
-}
-
-const NOT_FOUND: &str = "404 Not Found";
-
-async fn connection_loop<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
-    server: Arc<Server<PreM, AfterM>>,
-    mut stream: &mut (impl AsyncRead + Unpin),
-) -> ListenResult<String>
-where
-    PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
-    FutP: Future<Output = ResultP> + std::marker::Send + 'static,
-    ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
-    AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
-    FutA: Future<Output = ResultA> + std::marker::Send + 'static,
-    ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
-{
-    let request = Request::from_stream(&mut stream).await?;
-
-    let handler = server.find_route(
-        request.method(),
-        request
-            .uri()
-            .to_string()
-            .as_str(),
-    );
     let handler = match handler {
         Some(handler) => handler,
-        None => Err(NOT_FOUND)?,
+        None => {
+            return Ok(hyper::Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(hyper::Body::empty())
+                .unwrap());
+        }
     };
 
-    let response = handler
-        .call(request.into())
-        .await
-        .map_or_else(|err| err.into(), |resp| resp);
-
-    let response_string = response.format();
-    Ok(response_string)
-}
-
-mod test_utils {
-    use std::cmp::min;
-    use std::pin::Pin;
-
-    use futures::io::Error;
-    use futures::task::{Context, Poll};
-    use futures::{AsyncRead, AsyncWrite};
-
-    #[derive(Clone)]
-    pub struct MockTcpStream {
-        pub read_data: Vec<u8>,
-        pub write_data: Vec<u8>,
-    }
-
-    impl AsyncRead for MockTcpStream {
-        fn poll_read(
-            mut self: Pin<&mut Self>,
-            _: &mut Context,
-            buf: &mut [u8],
-        ) -> Poll<Result<usize, Error>> {
-            let size: usize = min(self.read_data.len(), buf.len());
-            buf[..size].copy_from_slice(&self.read_data[..size]);
-            self.read_data = self
-                .read_data
-                .drain(size..)
-                .collect::<Vec<_>>();
-            Poll::Ready(Ok(size))
-        }
-    }
-
-    impl AsyncWrite for MockTcpStream {
-        fn poll_write(
-            mut self: Pin<&mut Self>,
-            _: &mut Context,
-            buf: &[u8],
-        ) -> Poll<Result<usize, Error>> {
-            let mut a = buf.to_vec();
-            self.write_data.append(&mut a);
-
-            Poll::Ready(Ok(buf.len()))
-        }
-
-        fn poll_flush(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
-            Poll::Ready(Ok(()))
-        }
-
-        fn poll_close(self: Pin<&mut Self>, _: &mut Context) -> Poll<Result<(), Error>> {
-            Poll::Ready(Ok(()))
-        }
-    }
-
-    impl Unpin for MockTcpStream {}
-}
-
-#[cfg(test)]
-mod test_server_routing {
-
-    use async_std_test::async_test;
-    use futures::Future;
-    use serde::{Deserialize, Serialize};
-
-    use crate::{
-        handler::{GenericResponse, InternalResult, Json},
-        middleware::{AfterMiddleware, PreMiddleware},
-        request::{Method, Request},
-        response::Response,
-    };
-
-    use super::Server;
-
-    #[derive(Debug, Deserialize, Serialize, PartialEq)]
-    struct TestStruct {
-        correct: bool,
-    }
-
-    async fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> GenericResponse {
-        Response::new(serde_json::to_string(&TestStruct { correct: true }).unwrap())
-    }
-
-    async fn run_test<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
-        server: &Server<PreM, AfterM>,
-        req: Request<String>,
-    ) -> GenericResponse
-    where
-        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
-        FutP: Future<Output = ResultP> + std::marker::Send + 'static,
-        ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
-        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
-        FutA: Future<Output = ResultA> + std::marker::Send + 'static,
-        ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
-    {
-        let method = req.method();
-
-        let path = req.uri().path().to_string();
-
-        let handler = server.find_route(method, path.as_str());
-
-        assert!(handler.is_some());
-
-        handler
-            .unwrap()
-            .call(req.into())
+    let (parts, body) = req.into_parts();
+    /*
+     *let str = body
+     *    .try_fold(String::with_capacity(1024), |mut acc, ch| async {
+     *        ch.lines()
+     *            .try_fold(acc, |mut acc, l| async move {
+     *                acc.push_str(l.as_str());
+     *                Ok(acc)
+     *            })
+     *            .await
+     *        //acc.push(ch.lines().co);
+     *    })
+     *    .await;
+     */
+    let str = String::from_utf8(
+        hyper::body::to_bytes(body)
             .await
             .unwrap()
-    }
-
-    #[async_test]
-    async fn test_handler_receiving_req_and_res() -> std::io::Result<()> {
-        let server = Server::new();
-
-        let server = server.method(
-            Method::GET,
-            "/aaaa/bbbb",
-            test_handler_with_req_and_res,
-            &Json::new(),
-            &String::from(""),
-        );
-
-        let request = Request::builder()
-            .uri("/aaaa/bbbb")
-            .body(serde_json::json!({ "correct": false }).to_string());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(
-            response.body(),
-            &serde_json::json!({ "correct": true }).to_string()
-        );
-
-        Ok(())
-    }
-
-    #[async_test]
-    async fn test_server_fn_all() -> std::io::Result<()> {
-        let server = Server::new();
-
-        let server = server.all(
-            "/test/all",
-            test_handler_with_req_and_res,
-            &Json::new(),
-            &String::new(),
-        );
-
-        let req_body = serde_json::json!({ "correct": false }).to_string();
-        let expected_res_body = serde_json::json!({ "correct": true }).to_string();
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::POST)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::PUT)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::DELETE)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::TRACE)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::OPTIONS)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::PATCH)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::CONNECT)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::HEAD)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-
-        Ok(())
-    }
-
-    macro_rules! test_method {
-        ($sla:tt, $mtd:ident, $upper_mtd:ident) => {
-    #[async_test]
-    async fn $sla() -> std::io::Result<()> {
-        let  server = Server::new();
-
-        let server = server.$mtd(
-            "/test/all",
-            test_handler_with_req_and_res,
-            &Json::new(),
-            &String::new(),
-        );
-
-        let req_body = serde_json::json!({ "correct": false }).to_string();
-        let expected_res_body = serde_json::json!({ "correct": true }).to_string();
-
-        let request = Request::builder()
-            .uri("/test/all")
-            .method(Method::$upper_mtd)
-            .body(req_body.clone());
-
-        let response = run_test(&server, request).await;
-
-        assert_eq!(*response.body(), expected_res_body.clone());
-        Ok(())
-    }
-        };
-    }
-
-    test_method!(test_only_get, get, GET);
-    test_method!(test_only_post, post, POST);
-    test_method!(test_only_put, put, PUT);
-    test_method!(test_only_delete, delete, DELETE);
-    test_method!(test_only_trace, trace, TRACE);
-    test_method!(test_only_option, options, OPTIONS);
-    test_method!(test_only_connect, connect, CONNECT);
-    test_method!(test_only_head, head, HEAD);
-}
-
-#[cfg(test)]
-mod test_connection_loop {
-    use std::sync::Arc;
-
-    use async_std_test::async_test;
-    use futures::Future;
-    use serde::{Deserialize, Serialize};
-
-    use crate::handler::InternalResult;
-    use crate::middleware::{AfterMiddleware, PreMiddleware};
-    use crate::request::Method;
-    use crate::response::Response;
-    use crate::server::connection_loop;
-    use crate::server::test_utils::MockTcpStream;
-    use crate::{handler::Json, request::Request, server::Server};
-
-    #[derive(Debug, Deserialize, Serialize, PartialEq)]
-    struct TestStruct {
-        correct: bool,
-    }
-
-    async fn test_handler_with_req_and_res(_req: Request<TestStruct>) -> Response<TestStruct> {
-        Response::new(TestStruct { correct: true })
-    }
-
-    async fn test_handler_unity_res() -> Response<TestStruct> {
-        Response::new(TestStruct { correct: true })
-    }
-
-    async fn test_handler_req_body_and_res(_req: TestStruct) -> Response<TestStruct> {
-        Response::new(TestStruct { correct: true })
-    }
-
-    async fn test_handler_with_req_and_res_body(_req: Request<TestStruct>) -> TestStruct {
-        TestStruct { correct: true }
-    }
-
-    async fn test_handler_unity_res_body() -> TestStruct {
-        TestStruct { correct: true }
-    }
-
-    async fn test_handler_req_body_and_res_body(_req: TestStruct) -> TestStruct {
-        TestStruct { correct: true }
-    }
-
-    struct TestConfig {
-        response: Response<String>,
-        request: Request<String>,
-    }
-
-    async fn run_test<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
-        server: Arc<Server<PreM, AfterM>>,
-        test_config: TestConfig,
-    ) where
-        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
-        FutP: Future<Output = ResultP> + std::marker::Send + 'static,
-        ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
-        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
-        FutA: Future<Output = ResultA> + std::marker::Send + 'static,
-        ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
-    {
-        // TODO: Implement ToString for Request
-        let request = test_config.request;
-        let response = test_config.response;
-        let method = request.method().to_string();
-        let uri = request.uri().to_string();
-        let ver = "HTTP/1.1";
-        let header = request
-            .headers()
-            .iter()
-            .fold(String::from("\r\n"), |acc, (key, value)| {
-                format!("{}:{}\r\n{}", key, value.to_str().unwrap(), acc)
-            });
-        let body = request.body();
-        let input_request = format!("{} {} {}\r\n{}{}", method, uri, ver, header, body);
-        let mut stream = MockTcpStream {
-            read_data: input_request.into_bytes(),
-            write_data: vec![],
-        };
-
-        let response_a = connection_loop(server, &mut stream).await;
-
-        // TODO: Implement ToString for Response
-        let expected_contents = response.body();
-        let expected_status_code = response.status().as_u16();
-        let expected_status_message = response
-            .status()
-            .canonical_reason();
-        let expected_response = format!(
-            "HTTP/1.1 {} {}\r\ncontent-length:{}\r\n\r\n{}",
-            expected_status_code,
-            expected_status_message.unwrap(),
-            expected_contents.len(),
-            expected_contents
-        );
-
-        assert!(response_a
-            .map_or_else(|err| format!("HTTP/1.1 {}", err), |res| res)
-            .starts_with(&expected_response));
-    }
-
-    macro_rules! test_connection_loop {
-        ($test_name: tt, $fn: ident, $des: expr) => {
-    #[async_test]
-    async fn $test_name() -> std::io::Result<()> {
-        let  server = Server::new();
-        let server = server.all(
-            "/aaaaa",
-            $fn,
-            &$des,
-            &Json::default(),
-        );
-        let req_body = serde_json::json!({"correct": false}).to_string();
-        let res_body = serde_json::json!({"correct": true}).to_string();
-
-        let request = Request::builder()
-            .uri("/aaaaa")
-            .method(Method::GET)
-            .header("Content-Length", req_body.len())
-            .body(req_body);
-        let response = Response::builder()
-            .status(200)
-            .body(res_body);
-        let test_config = TestConfig { request, response };
-
-        let server = Arc::new(server);
-
-        run_test(server, test_config).await;
-
-        Ok(())
-    }
-
-        };
-    }
-
-    test_connection_loop!(
-        test_request_and_response,
-        test_handler_with_req_and_res,
-        Json::default()
-    );
-    test_connection_loop!(test_unity_response, test_handler_unity_res, ());
-    test_connection_loop!(
-        test_req_body_and_response,
-        test_handler_req_body_and_res,
-        Json::default()
-    );
-    test_connection_loop!(
-        test_req_and_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default()
-    );
-    test_connection_loop!(test_unity_res_body, test_handler_unity_res_body, ());
-    test_connection_loop!(
-        test_req_body_and_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default()
-    );
-
-    async fn test_for_error<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
-        server: Arc<Server<PreM, AfterM>>,
-        request: String,
-        response: String,
-    ) where
-        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
-        FutP: Future<Output = ResultP> + std::marker::Send + 'static,
-        ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
-        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
-        FutA: Future<Output = ResultA> + std::marker::Send + 'static,
-        ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
-    {
-        // TODO: Implement ToString for Request
-        let mut stream = MockTcpStream {
-            read_data: request.into_bytes(),
-            write_data: vec![],
-        };
-
-        let error = connection_loop(server, &mut stream).await;
-
-        // TODO: Implement ToString for Response
-        println!("{:?}", error);
-        match error {
-            Ok(res) => assert!(res.starts_with(&response)),
-            Err(err) => assert!(err
-                .to_string()
-                .starts_with(response.as_str())),
-        }
-    }
-
-    macro_rules! test_error_in_connection_loop {
-        ($test_name:ident, $fn: ident, $des: expr, $send:literal, $expected: literal) => {
-            #[async_test]
-            async fn $test_name() -> std::io::Result<()> {
-                let server = Server::new();
-                let server = server.all("/aaaaa", $fn, &$des, &Json::default());
-
-                let server = Arc::new(server);
-
-                let request = $send.to_owned();
-                let response = $expected.to_owned();
-
-                test_for_error(server.clone(), request, response).await;
-
-                Ok(())
-            }
-        };
-    }
-
-    test_error_in_connection_loop!(
-        test_no_payload_unity_res,
-        test_handler_unity_res,
-        (),
-        "",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_no_payload_unity_res_body,
-        test_handler_unity_res_body,
-        (),
-        "",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_no_payload_req_res,
-        test_handler_with_req_and_res,
-        Json::default(),
-        "",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_no_payload_req_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default(),
-        "",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_no_payload_req_body_res,
-        test_handler_req_body_and_res,
-        Json::default(),
-        "",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_no_payload_req_body_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default(),
-        "",
-        "400 Bad Request"
-    );
-
-    test_error_in_connection_loop!(
-        test_invalid_method_unity_res,
-        test_handler_unity_res,
-        (),
-        "INVALID / HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_method_unity_res_body,
-        test_handler_unity_res_body,
-        (),
-        "INVALID / HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_method_req_res,
-        test_handler_with_req_and_res,
-        Json::default(),
-        "INVALID / HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_method_req_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default(),
-        "INVALID / HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_method_req_body_res,
-        test_handler_req_body_and_res,
-        Json::default(),
-        "INVALID / HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_method_req_body_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default(),
-        "INVALID / HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-
-    test_error_in_connection_loop!(
-        test_invalid_uri_unity_res,
-        test_handler_unity_res,
-        (),
-        "GET https:// HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_uri_unity_res_body,
-        test_handler_unity_res_body,
-        (),
-        "GET https:// HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_uri_req_res,
-        test_handler_with_req_and_res,
-        Json::default(),
-        "GET https:// HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_uri_req_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default(),
-        "GET https:// HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_uri_req_body_res,
-        test_handler_req_body_and_res,
-        Json::default(),
-        "GET https:// HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_uri_req_body_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default(),
-        "GET https:// HTTP/1.1\r\n\r\n",
-        "400 Bad Request"
-    );
-
-    test_error_in_connection_loop!(
-        test_unimplemented_http_version_unity_res,
-        test_handler_unity_res,
-        (),
-        "GET / HTTP/2\r\n\r\n",
-        "505 HTTP Version Not Supported"
-    );
-    test_error_in_connection_loop!(
-        test_unimplemented_http_version_unity_res_body,
-        test_handler_unity_res_body,
-        (),
-        "GET / HTTP/2\r\n\r\n",
-        "505 HTTP Version Not Supported"
-    );
-    test_error_in_connection_loop!(
-        test_unimplemented_http_version_req_res,
-        test_handler_with_req_and_res,
-        Json::default(),
-        "GET / HTTP/2\r\n\r\n",
-        "505 HTTP Version Not Supported"
-    );
-    test_error_in_connection_loop!(
-        test_unimplemented_http_version_req_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default(),
-        "GET / HTTP/2\r\n\r\n",
-        "505 HTTP Version Not Supported"
-    );
-    test_error_in_connection_loop!(
-        test_unimplemented_http_version_req_body_res,
-        test_handler_req_body_and_res,
-        Json::default(),
-        "GET / HTTP/2\r\n\r\n",
-        "505 HTTP Version Not Supported"
-    );
-    test_error_in_connection_loop!(
-        test_unimplemented_http_version_req_body_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default(),
-        "GET / HTTP/2\r\n\r\n",
-        "505 HTTP Version Not Supported"
-    );
-
-    test_error_in_connection_loop!(
-        test_not_found_unity_res,
-        test_handler_unity_res,
-        (),
-        "GET / HTTP/1.1\r\n\r\n",
-        "404 Not Found"
-    );
-    test_error_in_connection_loop!(
-        test_not_found_unity_res_body,
-        test_handler_unity_res_body,
-        (),
-        "GET / HTTP/1.1\r\n\r\n",
-        "404 Not Found"
-    );
-    test_error_in_connection_loop!(
-        test_not_found_req_res,
-        test_handler_with_req_and_res,
-        Json::default(),
-        "GET / HTTP/1.1\r\n\r\n",
-        "404 Not Found"
-    );
-    test_error_in_connection_loop!(
-        test_not_found_req_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default(),
-        "GET / HTTP/1.1\r\n\r\n",
-        "404 Not Found"
-    );
-    test_error_in_connection_loop!(
-        test_not_found_req_body_res,
-        test_handler_req_body_and_res,
-        Json::default(),
-        "GET / HTTP/1.1\r\n\r\n",
-        "404 Not Found"
-    );
-    test_error_in_connection_loop!(
-        test_not_found_req_body_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default(),
-        "GET / HTTP/1.1\r\n\r\n",
-        "404 Not Found"
-    );
-
-    test_error_in_connection_loop!(
-        test_invalid_header_format_unity_res,
-        test_handler_unity_res,
-        (),
-        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_header_format_unity_res_body,
-        test_handler_unity_res_body,
-        (),
-        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_header_format_req_res,
-        test_handler_with_req_and_res,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_header_format_req_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_header_format_req_body_res,
-        test_handler_req_body_and_res,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
-        "400 Bad Request"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_header_format_req_body_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\n:Wrong\r\n",
-        "400 Bad Request"
-    );
-
-    test_error_in_connection_loop!(
-        test_invalid_body_serialization_req_res,
-        test_handler_with_req_and_res,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
-        "HTTP/1.1 422 Unprocessable Entity"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_body_serialization_req_res_body,
-        test_handler_with_req_and_res_body,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
-        "HTTP/1.1 422 Unprocessable Entity"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_body_serialization_req_body_res,
-        test_handler_req_body_and_res,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
-        "HTTP/1.1 422 Unprocessable Entity"
-    );
-    test_error_in_connection_loop!(
-        test_invalid_body_serialization_req_body_res_body,
-        test_handler_req_body_and_res_body,
-        Json::default(),
-        "GET /aaaaa HTTP/1.1\r\nAccess:0\r\nwrong_body:true",
-        "HTTP/1.1 422 Unprocessable Entity"
-    );
+            .to_vec(),
+    )
+    .unwrap();
+    let req_new = hyper::Request::from_parts(parts, str);
+
+    let (parts, body) = handler
+        .call(Ok(Request::from_inner(req_new)))
+        .await
+        .map_or_else(|err| err.into(), |res| res)
+        .into_inner()
+        .into_parts();
+
+    let body = hyper::Body::from(body);
+
+    Ok(hyper::Response::from_parts(parts, body))
 }

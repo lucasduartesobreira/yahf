@@ -2,11 +2,11 @@ extern crate yahf;
 
 use std::net::SocketAddr;
 
-use yahf::server_hyper::HyperServer;
+use yahf::server::Server;
 
 #[tokio::main]
 async fn main() {
-    let a = HyperServer::new().get(
+    let a = Server::new().get(
         "/",
         || async { "Hello world".to_string() },
         &(),
