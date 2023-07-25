@@ -197,7 +197,7 @@ where
 async fn handle_req<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
     server: Arc<Server<PreM, AfterM>>,
     req: hyper::Request<hyper::Body>,
-) -> Result<hyper::Response<hyper::Body>, Infallible>
+) -> Result<hyper::Response<hyper::Body>, Box<dyn std::error::Error + Send + Sync>>
 where
     PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
     FutP: Future<Output = ResultP> + std::marker::Send + 'static,
@@ -219,26 +219,11 @@ where
     };
 
     let (parts, body) = req.into_parts();
-    /*
-     *let str = body
-     *    .try_fold(String::with_capacity(1024), |mut acc, ch| async {
-     *        ch.lines()
-     *            .try_fold(acc, |mut acc, l| async move {
-     *                acc.push_str(l.as_str());
-     *                Ok(acc)
-     *            })
-     *            .await
-     *        //acc.push(ch.lines().co);
-     *    })
-     *    .await;
-     */
     let str = String::from_utf8(
         hyper::body::to_bytes(body)
-            .await
-            .unwrap()
+            .await?
             .to_vec(),
-    )
-    .unwrap();
+    )?;
     let req_new = hyper::Request::from_parts(parts, str);
 
     let (parts, body) = handler
@@ -252,3 +237,191 @@ where
 
     Ok(hyper::Response::from_parts(parts, body))
 }
+
+#[cfg(test)]
+mod test {
+
+    use std::net::SocketAddr;
+
+    use futures::Future;
+    use hyper::{Body, Client};
+
+    use crate::{
+        error::Error,
+        handler::InternalResult,
+        middleware::{AfterMiddleware, PreMiddleware},
+        request::{Method, Request},
+        response::Response,
+        server::Server,
+    };
+
+    struct TestReq {
+        req: hyper::Request<hyper::Body>,
+        res: hyper::Response<&'static str>,
+    }
+
+    async fn run_req<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+        server: Server<PreM, AfterM>,
+        addr: SocketAddr,
+        test_req: TestReq,
+    ) -> Result<(), hyper::Error>
+    where
+        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+        FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+        ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+        FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+        ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+    {
+        tokio::spawn(server.listen(addr));
+
+        let TestReq {
+            mut req,
+            res: expected_res,
+        } = test_req;
+
+        *req.uri_mut() = format!("http://localhost:{}/", addr.port())
+            .parse()
+            .unwrap();
+
+        let client = Client::new();
+        let response = client.request(req).await?;
+
+        assert!(response.status() == expected_res.status());
+
+        let body_str = String::from_utf8(
+            hyper::body::to_bytes(response.into_body())
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+
+        assert!(body_str.as_str() == expected_res.into_body());
+
+        Ok(())
+    }
+
+    macro_rules! test_server_method {
+        ($name: ident, $method: ident, $req: expr, $ip: literal) => {
+            #[tokio::test]
+            async fn $name() {
+                let server = Server::new().$method(
+                    "/",
+                    || async { String::from("Hello world!") },
+                    &(),
+                    &String::with_capacity(0),
+                );
+                let response = run_req(
+                    server,
+                    $ip.parse().unwrap(),
+                    TestReq {
+                        req: $req,
+                        res: hyper::Response::new("Hello world!"),
+                    },
+                )
+                .await;
+
+                assert!(response.is_ok(), "{:?}", response);
+            }
+        };
+    }
+
+    test_server_method!(
+        test_server_get,
+        get,
+        hyper::Request::builder()
+            .method(Method::GET)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8000"
+    );
+    test_server_method!(
+        test_server_post,
+        post,
+        hyper::Request::builder()
+            .method(Method::POST)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8001"
+    );
+    test_server_method!(
+        test_server_put,
+        put,
+        hyper::Request::builder()
+            .method(Method::PUT)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8002"
+    );
+    test_server_method!(
+        test_server_delete,
+        delete,
+        hyper::Request::builder()
+            .method(Method::DELETE)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8003"
+    );
+    test_server_method!(
+        test_server_patch,
+        patch,
+        hyper::Request::builder()
+            .method(Method::PATCH)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8004"
+    );
+
+    #[tokio::test]
+    async fn test_server_head() {
+        let server = Server::new().head(
+            "/",
+            || async { String::from("Hello world!") },
+            &(),
+            &String::with_capacity(0),
+        );
+        let response = run_req(
+            server,
+            "127.0.0.1:8005"
+                .parse()
+                .unwrap(),
+            TestReq {
+                req: hyper::Request::builder()
+                    .method(Method::HEAD)
+                    .body(Body::from(""))
+                    .unwrap(),
+                res: hyper::Response::new(""),
+            },
+        )
+        .await;
+
+        assert!(response.is_ok(), "{:?}", response);
+    }
+    test_server_method!(
+        test_server_options,
+        options,
+        hyper::Request::builder()
+            .method(Method::OPTIONS)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8006"
+    );
+    test_server_method!(
+        test_server_trace,
+        trace,
+        hyper::Request::builder()
+            .method(Method::TRACE)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8007"
+    );
+    test_server_method!(
+        test_server_all,
+        all,
+        hyper::Request::builder()
+            .method(Method::GET)
+            .body(Body::from(""))
+            .unwrap(),
+        "127.0.0.1:8008"
+    );
