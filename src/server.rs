@@ -499,4 +499,60 @@ mod test {
             .body("Hello world")
             .unwrap()
     );
+
+    test_with_server!(
+        test_after_error,
+        Server::new()
+            .after(|_| async {
+                crate::handler::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
+            })
+            .get(
+                "/",
+                || async { "Hello world".to_owned() },
+                &(),
+                &String::with_capacity(0)
+            ),
+        "127.0.0.1:8011",
+        hyper::Request::builder()
+            .method(Method::GET)
+            .body(Body::from(""))
+            .unwrap(),
+        hyper::Response::builder()
+            .status(422)
+            .body("AfterMiddleware error")
+            .unwrap()
+    );
+
+    test_with_server!(
+        test_after_error_handled,
+        Server::new()
+            .after(|_| async {
+                crate::handler::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
+            })
+            .after(|res: crate::handler::Result<Response<String>>| async {
+                crate::handler::Result::from(res.into_inner().map_or_else(
+                    |_| {
+                        Ok(crate::response::Response::new(
+                            "AfterMiddleware Handled Error".to_owned(),
+                        ))
+                    },
+                    Ok,
+                ))
+            })
+            .get(
+                "/",
+                || async { "Hello world".to_owned() },
+                &(),
+                &String::with_capacity(0)
+            ),
+        "127.0.0.1:8012",
+        hyper::Request::builder()
+            .method(Method::GET)
+            .body(Body::from(""))
+            .unwrap(),
+        hyper::Response::builder()
+            .status(200)
+            .body("AfterMiddleware Handled Error")
+            .unwrap()
+    );
 }
