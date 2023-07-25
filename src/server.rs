@@ -302,6 +302,26 @@ mod test {
         Ok(())
     }
 
+    macro_rules! test_with_server {
+        ($name: ident, $server: expr, $ip: literal, $req: expr, $res: expr) => {
+            #[tokio::test]
+            async fn $name() {
+                let server = $server;
+                let response = run_req(
+                    server,
+                    $ip.parse().unwrap(),
+                    TestReq {
+                        req: $req,
+                        res: $res,
+                    },
+                )
+                .await;
+
+                assert!(response.is_ok(), "{:?}", response);
+            }
+        };
+    }
+
     macro_rules! test_server_method {
         ($name: ident, $method: ident, $req: expr, $ip: literal) => {
             #[tokio::test]
@@ -425,3 +445,59 @@ mod test {
             .unwrap(),
         "127.0.0.1:8008"
     );
+    test_with_server!(
+        test_pre_error,
+        Server::new()
+            .pre(|_| async {
+                crate::handler::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
+            })
+            .get(
+                "/",
+                || async { "Hello world".to_owned() },
+                &(),
+                &String::with_capacity(0)
+            ),
+        "127.0.0.1:8009",
+        hyper::Request::builder()
+            .method(Method::GET)
+            .body(Body::from(""))
+            .unwrap(),
+        hyper::Response::builder()
+            .status(422)
+            .body("PreMiddleware error")
+            .unwrap()
+    );
+
+    test_with_server!(
+        test_pre_error_handled,
+        Server::new()
+            .pre(|_| async {
+                crate::handler::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
+            })
+            .pre(|req: crate::handler::Result<Request<String>>| async {
+                crate::handler::Result::from(req.into_inner().map_or_else(
+                    |_| {
+                        Ok(crate::request::Request::new(String::from(
+                            "PreMiddleware fixed error",
+                        )))
+                    },
+                    Ok,
+                ))
+            })
+            .get(
+                "/",
+                || async { "Hello world".to_owned() },
+                &(),
+                &String::with_capacity(0)
+            ),
+        "127.0.0.1:8010",
+        hyper::Request::builder()
+            .method(Method::GET)
+            .body(Body::from(""))
+            .unwrap(),
+        hyper::Response::builder()
+            .status(200)
+            .body("Hello world")
+            .unwrap()
+    );
+}
