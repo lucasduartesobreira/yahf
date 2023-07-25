@@ -1,5 +1,4 @@
-use async_std::io::BufReader;
-use futures::{AsyncBufReadExt, AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
 
 use crate::handler::InternalResult;
 

@@ -12,8 +12,7 @@ use crate::{
     router::Router,
 };
 
-use async_std::prelude::*;
-
+use futures::Future;
 use http::StatusCode;
 use hyper::{
     server::conn::AddrStream,

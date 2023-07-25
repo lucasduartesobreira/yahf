@@ -183,8 +183,6 @@ where
 mod test {
     use std::sync::Arc;
 
-    use async_std_test::async_test;
-
     use crate::{
         error::Error,
         handler::{Result, Runner},
@@ -260,7 +258,7 @@ mod test {
         .into()
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_middleware_creation() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
@@ -283,7 +281,7 @@ mod test {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_pre_middleware_with_short_circuit() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
@@ -305,7 +303,7 @@ mod test {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_after_middleware_with_short_circuit() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
@@ -328,7 +326,7 @@ mod test {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_pre_middleware_with_short_circuit_handled() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
@@ -351,7 +349,7 @@ mod test {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_after_middleware_with_short_circuit_handled() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 
@@ -380,7 +378,7 @@ mod test {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_runner_with_error_handled_by_middleware() -> std::io::Result<()> {
         let middleware = MiddlewareFactory::new();
 

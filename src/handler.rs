@@ -365,7 +365,6 @@ where
 #[cfg(test)]
 mod tests {
 
-    use async_std_test::async_test;
     use serde::{Deserialize, Serialize};
 
     use crate::handler::Json;
@@ -419,7 +418,7 @@ mod tests {
         Ok(SomeBodyType { field: new_field }).into()
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_simple_handler_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(simple_handler, &Json::new(), &Json::new());
         let c = Request::builder()
@@ -434,7 +433,7 @@ mod tests {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_unit_handler_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(unit_handler, &(), &Json::new());
         let c = Request::builder()
@@ -451,7 +450,7 @@ mod tests {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_unit_handler_with_response_body_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(unit_handler_with_response_body, &(), &Json::new());
         let c = Request::builder()
@@ -468,7 +467,7 @@ mod tests {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_simple_handler_with_body_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(simple_handler_with_body, &Json::new(), &Json::new());
         let c = Request::builder().body(serde_json::json!({ "field": "So Good" }).to_string());
@@ -484,7 +483,7 @@ mod tests {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_handler_with_simple_body_on_input_and_output_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(
             handler_with_simple_body_on_input_and_output,
@@ -504,7 +503,7 @@ mod tests {
         Ok(())
     }
 
-    #[async_test]
+    #[tokio::test]
     async fn test_handler_with_simple_body_on_input_and_cf_output_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(
             handler_with_simple_body_on_input_and_cf_output,
