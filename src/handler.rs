@@ -110,7 +110,6 @@ where
     }
 }
 
-//self.0.and_then(|resp| BasicRunnerOutput::try_into(resp))
 impl<BodyType, Extractor, RInput> RunnerInput<Extractor> for Result<RInput>
 where
     Extractor: BodyDeserializer<Item = BodyType>,
