@@ -4,7 +4,6 @@ use std::{
     pin::Pin,
 };
 
-use async_trait::async_trait;
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -13,12 +12,8 @@ use crate::{error::Error, request::Request, response::Response};
 type StandardBodyType = String;
 pub type GenericRequest = Request<StandardBodyType>;
 pub type GenericResponse = Response<StandardBodyType>;
-pub type BoxedHandler = Box<
-    dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse> + Send>> + Sync + Send,
->;
-pub type RefHandler<'a> = &'a (dyn Fn(GenericRequest) -> Pin<Box<dyn Future<Output = GenericResponse> + Send>>
-         + Sync
-         + Send);
+pub type BoxedHandler = Box<dyn BoxedRunner>;
+pub type RefHandler<'a> = &'a (dyn BoxedRunner);
 
 pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
 
@@ -84,7 +79,7 @@ pub trait BodySerializer {
 
 /// Describes a type that can be extracted using a BodyExtractors
 pub trait RunnerInput<Extractor> {
-    fn try_into(input: Request<StandardBodyType>) -> InternalResult<Self>
+    fn try_into(input: InternalResult<Request<StandardBodyType>>) -> InternalResult<Self>
     where
         Self: std::marker::Sized;
 }
@@ -94,11 +89,11 @@ where
     Extractor: BodyDeserializer<Item = BodyType>,
     BodyType: DeserializeOwned,
 {
-    fn try_into(input: Request<String>) -> InternalResult<Self>
+    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
     where
         Self: std::marker::Sized,
     {
-        Extractor::deserialize(input.body())
+        input.and_then(|input| Extractor::deserialize(input.body()))
     }
 }
 
@@ -107,11 +102,25 @@ where
     Extractor: BodyDeserializer<Item = BodyType>,
     BodyType: DeserializeOwned,
 {
-    fn try_into(input: Request<String>) -> InternalResult<Self>
+    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
     where
         Self: std::marker::Sized,
     {
-        input.and_then(|body| Extractor::deserialize(&body))
+        input.and_then(|input| input.and_then(|body| Extractor::deserialize(&body)))
+    }
+}
+
+impl<BodyType, Extractor, RInput> RunnerInput<Extractor> for Result<RInput>
+where
+    Extractor: BodyDeserializer<Item = BodyType>,
+    BodyType: DeserializeOwned,
+    RInput: RunnerInput<Extractor>,
+{
+    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
+    where
+        Self: std::marker::Sized,
+    {
+        Ok(RInput::try_into(input).into())
     }
 }
 
@@ -150,15 +159,13 @@ where
     }
 }
 
-#[async_trait]
 pub trait Runner<Input, Output>: Clone + Send + Sync {
-    async fn call_runner(
-        &self,
-        run: Request<StandardBodyType>,
-    ) -> InternalResult<Response<StandardBodyType>>;
+    fn call_runner(
+        &'_ self,
+        run: InternalResult<Request<StandardBodyType>>,
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_;
 }
 
-#[async_trait]
 impl<ReqBody, ResBody, FnIn, FnOut, BodyDes, BodySer, Fut, F>
     Runner<(FnIn, BodyDes), (FnOut, BodySer)> for F
 where
@@ -171,15 +178,22 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, inp: Request<String>) -> InternalResult<Response<String>> {
-        match FnIn::try_into(inp) {
-            Ok(req) => FnOut::try_into(self(req).await),
-            Err(serde_error) => Err(serde_error),
+    #[allow(clippy::manual_async_fn)]
+    fn call_runner(
+        &'_ self,
+        inp: InternalResult<Request<StandardBodyType>>,
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
+        async move {
+            let inp = FnIn::try_into(inp);
+
+            match inp {
+                Ok(req) => FnOut::try_into(self(req).await),
+                Err(err) => Err(err),
+            }
         }
     }
 }
 
-#[async_trait]
 impl<ResBody, FnOut, BodySer, Fut, F> Runner<((), ()), (FnOut, BodySer)> for F
 where
     F: Fn() -> Fut + Send + Sync + Clone,
@@ -188,8 +202,15 @@ where
     BodySer: BodySerializer<Item = ResBody>,
     ResBody: Serialize,
 {
-    async fn call_runner(&self, _inp: Request<String>) -> InternalResult<Response<String>> {
-        FnOut::try_into(self().await)
+    #[allow(clippy::manual_async_fn)]
+    fn call_runner(
+        &'_ self,
+        _run: InternalResult<Request<StandardBodyType>>,
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
+        async move {
+            _run?;
+            FnOut::try_into(self().await)
+        }
     }
 }
 
@@ -252,11 +273,74 @@ impl BodySerializer for String {
     }
 }
 
+pub trait BoxedRunner: DynClone + Sync + Send {
+    fn call(
+        &self,
+        req: InternalResult<GenericRequest>,
+    ) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>>;
+}
+
+impl<F> BoxedRunner for F
+where
+    F: Fn(
+            InternalResult<Request<String>>,
+        ) -> Pin<Box<dyn Future<Output = InternalResult<Response<String>>> + Send>>
+        + Sync
+        + DynClone
+        + Send,
+{
+    fn call(
+        &self,
+        req: InternalResult<GenericRequest>,
+    ) -> Pin<Box<dyn Future<Output = InternalResult<GenericResponse>> + Send>> {
+        self(req)
+    }
+}
+
+pub trait DynClone {
+    fn clone_box(&self) -> Box<dyn BoxedRunner>;
+}
+
+impl<F> DynClone for F
+where
+    F: Fn(
+            InternalResult<Request<String>>,
+        ) -> Pin<Box<dyn Future<Output = InternalResult<Response<String>>> + Send>>
+        + Sync
+        + Clone
+        + Send
+        + 'static,
+{
+    fn clone_box(&self) -> Box<dyn BoxedRunner> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn BoxedRunner> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
+}
+
+impl Runner<(Request<String>, String), (Response<String>, String)> for Box<dyn BoxedRunner> {
+    #[allow(clippy::manual_async_fn)]
+    fn call_runner(
+        &'_ self,
+        run: InternalResult<Request<StandardBodyType>>,
+    ) -> impl Future<Output = InternalResult<Response<String>>> + Send + '_ {
+        async move { self.call(run).await }
+    }
+}
+
 pub(crate) fn encapsulate_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
     _deserializer: &Deserializer,
     _serializer: &Serializer,
-) -> impl Fn(Request<String>) -> Pin<Box<dyn Future<Output = Response<String>> + Send>> + Sync
+) -> impl Fn(
+    InternalResult<Request<String>>,
+) -> Pin<Box<dyn Future<Output = InternalResult<Response<String>>> + Send>>
+       + Sync
+       + DynClone
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)> + 'static,
     Deserializer: 'static,
@@ -269,15 +353,12 @@ where
 
 async fn call_runner<FnInput, FnOutput, Deserializer, Serializer, R>(
     runner: R,
-    req: Request<String>,
-) -> Response<String>
+    req: InternalResult<Request<String>>,
+) -> InternalResult<Response<String>>
 where
     R: Runner<(FnInput, Deserializer), (FnOutput, Serializer)>,
 {
-    match runner.call_runner(req).await {
-        Ok(resp) => resp,
-        Err(err) => err.into(),
-    }
+    runner.call_runner(req).await
 }
 
 #[cfg(test)]
@@ -342,10 +423,10 @@ mod tests {
         let a = encapsulate_runner(simple_handler, &Json::new(), &Json::new());
         let c = Request::builder()
             .body(serde_json::json!({ "field": "South of the border" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": "South of the border - Ed Sheeran"  }).to_string()
         );
 
@@ -357,12 +438,12 @@ mod tests {
         let a = encapsulate_runner(unit_handler, &(), &Json::new());
         let c = Request::builder()
             .body(serde_json::json!({ "field": "South of the border" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "HOPE - NF";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -374,12 +455,12 @@ mod tests {
         let a = encapsulate_runner(unit_handler_with_response_body, &(), &Json::new());
         let c = Request::builder()
             .body(serde_json::json!({ "field": "South of the border" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "HOPE - NF";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -390,12 +471,12 @@ mod tests {
     async fn test_simple_handler_with_body_implements_runner() -> std::io::Result<()> {
         let a = encapsulate_runner(simple_handler_with_body, &Json::new(), &Json::new());
         let c = Request::builder().body(serde_json::json!({ "field": "So Good" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "So Good - Halsey";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -410,12 +491,12 @@ mod tests {
             &Json::new(),
         );
         let c = Request::builder().body(serde_json::json!({ "field": "Sharks" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "Sharks - Imagine Dragons";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 
@@ -430,12 +511,12 @@ mod tests {
             &Json::new(),
         );
         let c = Request::builder().body(serde_json::json!({ "field": "Venom" }).to_string());
-        let b = a(c).await;
+        let b = a(c.into()).await;
 
         let expected_field_result = "Venom - Eminem";
 
         assert_eq!(
-            b.body().as_str(),
+            b.unwrap().body().as_str(),
             serde_json::json!({ "field": expected_field_result }).to_string()
         );
 

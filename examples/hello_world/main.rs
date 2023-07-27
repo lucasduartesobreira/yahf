@@ -12,5 +12,5 @@ fn main() {
         &String::with_capacity(0),
     );
 
-    a.listen("127.0.0.1:8000").unwrap();
+    a.listen("localhost:8000").unwrap();
 }

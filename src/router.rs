@@ -99,15 +99,28 @@ where
         OtherResultP: Into<InternalResult<Request<String>>> + Send,
         OtherResultA: Into<InternalResult<Response<String>>> + Send,
     {
-        self.get.extend(router.get);
-        self.put.extend(router.put);
-        self.delete.extend(router.delete);
-        self.post.extend(router.post);
-        self.trace.extend(router.trace);
-        self.options.extend(router.options);
-        self.connect.extend(router.connect);
-        self.patch.extend(router.patch);
-        self.head.extend(router.head);
+        let [get, put, delete, post, trace, options, connect, patch, head] = [
+            router.get,
+            router.put,
+            router.delete,
+            router.post,
+            router.trace,
+            router.options,
+            router.connect,
+            router.patch,
+            router.head,
+        ]
+        .map(|handler| handler.apply(self.middleware_factory.clone()));
+
+        self.get.extend(get);
+        self.put.extend(put);
+        self.delete.extend(delete);
+        self.post.extend(post);
+        self.trace.extend(trace);
+        self.options.extend(options);
+        self.connect.extend(connect);
+        self.patch.extend(patch);
+        self.head.extend(head);
 
         self
     }
@@ -320,7 +333,7 @@ mod test {
 
     mod utils {
         use crate::{
-            handler::RefHandler,
+            handler::{InternalResult, RefHandler},
             request::{Method, Request},
             response::Response,
         };
@@ -338,9 +351,9 @@ mod test {
 
         pub async fn run_runner(
             runner: RefHandler<'_>,
-            request: Request<String>,
-        ) -> Response<String> {
-            runner(request).await
+            request: InternalResult<Request<String>>,
+        ) -> InternalResult<Response<String>> {
+            runner.call(request).await
         }
     }
 
@@ -382,10 +395,10 @@ mod test {
 
                 assert!(handler.is_some());
 
-                let response = super::utils::run_runner(handler.unwrap(), request).await;
+                let response = super::utils::run_runner(handler.unwrap(), request.into()).await;
 
                 super::utils::test_runner_response(
-                    response.body().to_owned(),
+                    response.map_or_else(|err| err.into(), |res| res).body().to_owned(),
                     $expected_body.to_owned(),
                 );
 

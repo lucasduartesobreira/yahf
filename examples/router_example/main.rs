@@ -9,6 +9,7 @@ use yahf::handler::Json;
 use yahf::handler::Result;
 use yahf::request::Request;
 
+use yahf::response::Response;
 use yahf::router::Router;
 use yahf::server::Server;
 
@@ -36,6 +37,23 @@ async fn log_middleware(req: Result<Request<String>>) -> Result<Request<String>>
     }
 }
 
+async fn log_error(res: Result<Response<String>>) -> Result<Response<String>> {
+    match res.into_inner() {
+        Err(err) => {
+            println!(
+                "{} - {}",
+                time::SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Negative time")
+                    .as_millis(),
+                err.code(),
+            );
+            Err(err).into()
+        }
+        ok => ok.into(),
+    }
+}
+
 async fn first_computation(req: ComputationBody) -> ComputationBody {
     ComputationBody {
         value: req.value + 1,
@@ -52,10 +70,10 @@ fn main() {
     let mut router = Router::new().pre(log_middleware);
     router.get("/first", first_computation, &Json::new(), &Json::new());
 
-    let mut server = Server::new();
+    let mut server = Server::new().after(log_error);
     server.get("/second", second_computation, &Json::new(), &Json::new());
 
     let server = server.router(router);
 
-    server.listen("localhost:3000").unwrap();
+    server.listen("localhost:8000").unwrap();
 }
