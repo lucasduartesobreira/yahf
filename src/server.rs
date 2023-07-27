@@ -1,354 +1,124 @@
-use std::{fmt::Display, sync::Arc};
+use std::{
+    fmt::Display,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use crate::{
-    handle_selector,
-    handler::{encapsulate_runner, RefHandler, Runner},
+    handler::InternalResult,
+    middleware::{AfterMiddleware, PreMiddleware},
     request::{self, HttpHeaderName, HttpHeaderValue, Request, Uri},
+    response::Response,
+    router::Router,
 };
-use async_std::{
-    io::{BufReader, WriteExt},
-    net::TcpStream,
-    task,
-};
-use async_std::{
-    net::{TcpListener, ToSocketAddrs},
-    stream::StreamExt,
-};
-use futures::{AsyncBufReadExt, AsyncRead, AsyncWrite};
-use handle_selector::HandlerSelect;
+use async_std::io::BufReader;
+use async_std::net::{TcpListener, ToSocketAddrs};
+use async_std::prelude::*;
+use async_std::task;
 
+use futures::{AsyncRead, AsyncWrite, StreamExt};
 use request::Method;
 
-#[derive(Default)]
-pub struct Server<'a> {
-    get: HandlerSelect<'a>,
-    put: HandlerSelect<'a>,
-    delete: HandlerSelect<'a>,
-    post: HandlerSelect<'a>,
-    trace: HandlerSelect<'a>,
-    options: HandlerSelect<'a>,
-    connect: HandlerSelect<'a>,
-    patch: HandlerSelect<'a>,
-    head: HandlerSelect<'a>,
+pub struct Server<PreM, AfterM> {
+    router: Router<PreM, AfterM>,
 }
 
-impl<'a: 'static> Server<'a> {
-    pub fn new() -> Self {
-        Self {
-            get: HandlerSelect::new(),
-            put: HandlerSelect::new(),
-            delete: HandlerSelect::new(),
-            post: HandlerSelect::new(),
-            trace: HandlerSelect::new(),
-            options: HandlerSelect::new(),
-            connect: HandlerSelect::new(),
-            patch: HandlerSelect::new(),
-            head: HandlerSelect::new(),
+impl<PreM, FutP, ResultP, AfterM, FutA, ResultA> Deref for Server<PreM, AfterM>
+where
+    PreM: PreMiddleware<FutCallResponse = FutP>,
+    FutP: Future<Output = ResultP>,
+    ResultP: Into<InternalResult<Request<String>>>,
+    AfterM: AfterMiddleware<FutCallResponse = FutA>,
+    FutA: Future<Output = ResultA>,
+    ResultA: Into<InternalResult<Response<String>>>,
+{
+    type Target = Router<PreM, AfterM>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.router
+    }
+}
+
+impl<PreM, FutP, ResultP, AfterM, FutA, ResultA> DerefMut for Server<PreM, AfterM>
+where
+    PreM: PreMiddleware<FutCallResponse = FutP>,
+    FutP: Future<Output = ResultP>,
+    ResultP: Into<InternalResult<Request<String>>>,
+    AfterM: AfterMiddleware<FutCallResponse = FutA>,
+    FutA: Future<Output = ResultA>,
+    ResultA: Into<InternalResult<Response<String>>>,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.router
+    }
+}
+
+impl Server<(), ()> {
+    pub fn new() -> Server<
+        impl PreMiddleware<
+            FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
+        >,
+        impl AfterMiddleware<
+            FutCallResponse = impl Future<Output = impl Into<InternalResult<Response<String>>>>,
+        >,
+    > {
+        Server {
+            router: Router::new(),
         }
     }
+}
 
-    pub fn add_handler<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        method: Method,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
+impl<PreM, FutP, ResultP, AfterM, FutA, ResultA> Server<PreM, AfterM>
+where
+    PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+    FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+    ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+    AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+    FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+    ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+{
+    pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
+        self,
+        router: Router<OtherPreM, OtherAfterM>,
+    ) -> Self
+    where
+        OtherPreM: PreMiddleware<FutCallResponse = OtherFutP> + 'static,
+        OtherAfterM: AfterMiddleware<FutCallResponse = OtherFutA> + 'static,
+        OtherFutP: Future<Output = OtherResultP> + Send,
+        OtherFutA: Future<Output = OtherResultA> + Send,
+        OtherResultP: Into<InternalResult<Request<String>>> + Send,
+        OtherResultA: Into<InternalResult<Response<String>>> + Send,
     {
-        match method {
-            Method::GET => self.get.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::PUT => self.put.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::DELETE => self.delete.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::POST => self.post.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::TRACE => self.trace.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::OPTIONS => self.options.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::CONNECT => self.connect.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::PATCH => self.patch.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            Method::HEAD => self.head.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            ),
-            _ => (),
-        }
+        let new_router = self.router.router(router);
+        Self { router: new_router }
     }
 
-    pub fn get<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
+    pub fn pre<NewPreM, NewFut, NewResultP>(
+        self,
+        middleware: NewPreM,
+    ) -> Server<impl PreMiddleware<FutCallResponse = impl Future<Output = NewResultP>>, AfterM>
+    where
+        NewPreM: PreMiddleware<FutCallResponse = NewFut>,
+        NewFut: Future<Output = NewResultP>,
+        NewResultP: Into<InternalResult<Request<String>>>,
     {
-        self.add_handler(Method::GET, path, handler, deserializer, serializer)
+        let new_router = self.router.pre(middleware);
+
+        Server { router: new_router }
     }
 
-    pub fn post<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
+    pub fn after<NewAfterM, NewFut, NewResultA>(
+        self,
+        middleware: NewAfterM,
+    ) -> Server<PreM, impl AfterMiddleware<FutCallResponse = impl Future<Output = NewResultA>>>
+    where
+        NewAfterM: AfterMiddleware<FutCallResponse = NewFut>,
+        NewFut: Future<Output = NewResultA>,
+        NewResultA: Into<InternalResult<Response<String>>>,
     {
-        self.add_handler(Method::POST, path, handler, deserializer, serializer)
-    }
+        let new_router = self.router.after(middleware);
 
-    pub fn put<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        self.add_handler(Method::PUT, path, handler, deserializer, serializer)
-    }
-
-    pub fn delete<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        self.add_handler(Method::DELETE, path, handler, deserializer, serializer)
-    }
-
-    pub fn trace<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        self.add_handler(Method::TRACE, path, handler, deserializer, serializer)
-    }
-
-    pub fn options<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        self.add_handler(Method::OPTIONS, path, handler, deserializer, serializer)
-    }
-
-    pub fn connect<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        self.add_handler(Method::CONNECT, path, handler, deserializer, serializer)
-    }
-
-    pub fn patch<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        self.add_handler(Method::PATCH, path, handler, deserializer, serializer)
-    }
-
-    pub fn head<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        self.add_handler(Method::HEAD, path, handler, deserializer, serializer)
-    }
-
-    pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
-        path: &'static str,
-        handler: R,
-        deserializer: &Deserializer,
-        serializer: &Serializer,
-    ) where
-        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
-        FnIn: 'static,
-        FnOut: 'static,
-        Deserializer: 'static,
-        Serializer: 'static,
-    {
-        if let (None, None, None, None) = (
-            self.get.get(path),
-            self.post.get(path),
-            self.put.get(path),
-            self.delete.get(path),
-        ) {
-            self.get.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.post.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.put.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.delete.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.trace.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.options.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.patch.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.head.insert(
-                path,
-                Box::new(encapsulate_runner(
-                    handler.clone(),
-                    deserializer,
-                    serializer,
-                )),
-            );
-            self.connect.insert(
-                path,
-                Box::new(encapsulate_runner(handler, deserializer, serializer)),
-            );
-        }
-    }
-
-    fn find_handler(&self, method: &Method, path: &str) -> Option<RefHandler<'_>> {
-        match *method {
-            Method::GET => self.get.get(path),
-            Method::PUT => self.put.get(path),
-            Method::POST => self.post.get(path),
-            Method::DELETE => self.delete.get(path),
-            Method::TRACE => self.trace.get(path),
-            Method::OPTIONS => self.options.get(path),
-            Method::CONNECT => self.connect.get(path),
-            Method::PATCH => self.patch.get(path),
-            Method::HEAD => self.head.get(path),
-            _ => None,
-        }
+        Server { router: new_router }
     }
 
     pub fn listen<A: ToSocketAddrs + Display>(self, addr: A) -> ListenResult<()> {
@@ -357,10 +127,18 @@ impl<'a: 'static> Server<'a> {
 }
 type ListenResult<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-async fn accept_loop(
-    server: Server<'static>,
+async fn accept_loop<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+    server: Server<PreM, AfterM>,
     addr: impl ToSocketAddrs + Display,
-) -> ListenResult<()> {
+) -> ListenResult<()>
+where
+    PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+    FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+    ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+    AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+    FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+    ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+{
     let server = Arc::new(server);
     let listener = TcpListener::bind(addr).await.unwrap();
     println!("Start listening on {}", listener.local_addr().unwrap());
@@ -374,17 +152,30 @@ async fn accept_loop(
     Ok(())
 }
 
-fn handle_stream(
-    server: Arc<Server<'static>>,
-    mut stream: TcpStream,
-) -> async_std::task::JoinHandle<()> {
+fn handle_stream<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+    server: Arc<Server<PreM, AfterM>>,
+    mut stream: impl AsyncRead + AsyncWrite + Unpin + Send + 'static,
+) -> async_std::task::JoinHandle<()>
+where
+    PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+    FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+    ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+    AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+    FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+    ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+{
     task::spawn(async move {
-        let fut = connection_loop(server, &stream);
-        if let Err(e) = fut.await {
-            let formatted_error = format!("HTTP/1.1 {}", e);
-            stream.write(formatted_error.as_bytes());
-            eprintln!("{}", e);
-        }
+        let fut = connection_loop(server, &mut stream);
+        let response = match fut.await {
+            Ok(resp) => resp,
+            Err(err) => {
+                println!("{}", err);
+                format!("HTTP/1.1 {}", err)
+            }
+        };
+
+        stream.write_all(response.as_bytes()).await;
+        stream.flush().await;
     })
 }
 
@@ -392,19 +183,30 @@ const BAD_REQUEST: &str = "400 Bad Request";
 const NOT_FOUND: &str = "404 Not Found";
 const HTTP_VERSION_NOT_SUPPORTED: &str = "505 HTTP Version Not Supported";
 
-async fn connection_loop(
-    server: Arc<Server<'static>>,
-    mut stream: impl AsyncRead + AsyncWrite + Unpin,
-) -> ListenResult<()> {
-    let buf_reader = BufReader::new(&mut stream);
-    let mut lines = buf_reader.lines();
-    let first_line = lines.next().await;
+async fn connection_loop<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+    server: Arc<Server<PreM, AfterM>>,
+    mut stream: &mut (impl AsyncRead + Unpin),
+) -> ListenResult<String>
+where
+    PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+    FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+    ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+    AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+    FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+    ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+{
+    let mut buf_reader = BufReader::new(&mut stream);
+    let mut first = String::with_capacity(1024);
+    buf_reader
+        .read_line(&mut first)
+        .await
+        .map_err(|_| BAD_REQUEST)?;
 
     let request_builder = Request::builder();
-    let fl = match first_line {
-        Some(first_line) => first_line.map_err(|_| BAD_REQUEST)?,
-        None => Err(BAD_REQUEST)?,
-    };
+
+    first.pop();
+    first.pop();
+    let fl = first;
 
     let mut splitted_fl = fl.split(' ');
     let method = match splitted_fl.next() {
@@ -435,7 +237,7 @@ async fn connection_loop(
         _ => Err(HTTP_VERSION_NOT_SUPPORTED)?,
     };
 
-    let handler = server.find_handler(&method, &uri.to_string());
+    let handler = server.find_route(&method, &uri.to_string());
     let handler = match handler {
         Some(handler) => handler,
         None => Err(NOT_FOUND)?,
@@ -444,8 +246,16 @@ async fn connection_loop(
     let mut request_builder = request_builder.method(method).uri(uri);
     let mut content_length = 0usize;
 
-    while let Some(line) = lines.next().await {
-        let line = line?;
+    loop {
+        let mut line = String::with_capacity(100);
+        buf_reader
+            .read_line(&mut line)
+            .await
+            .map_err(|_| BAD_REQUEST)?;
+
+        line.pop();
+        line.pop();
+
         if line.is_empty() {
             break;
         }
@@ -471,13 +281,13 @@ async fn connection_loop(
         }
     }
 
-    let mut body_string = String::with_capacity(content_length);
-    while body_string.len() != content_length {
-        if let Some(line) = lines.next().await {
-            let line = line?;
-            body_string.push_str(line.as_str());
-        }
-    }
+    let mut body_string = vec![0u8; content_length];
+    buf_reader
+        .read_exact(&mut body_string)
+        .await
+        .map_err(|_| BAD_REQUEST)?;
+
+    let body_string = String::from_utf8(body_string)?;
 
     let request = request_builder.body(body_string);
 
@@ -497,9 +307,7 @@ async fn connection_loop(
         response.body()
     );
 
-    stream.write_all(response_string.as_bytes()).await?;
-    stream.flush().await?;
-    Ok(())
+    Ok(response_string)
 }
 
 mod test_utils {
@@ -510,6 +318,7 @@ mod test_utils {
     use futures::task::{Context, Poll};
     use futures::{AsyncRead, AsyncWrite};
 
+    #[derive(Clone)]
     pub struct MockTcpStream {
         pub read_data: Vec<u8>,
         pub write_data: Vec<u8>,
@@ -553,13 +362,15 @@ mod test_utils {
 }
 
 #[cfg(test)]
-mod test_server {
+mod test_server_routing {
 
     use async_std_test::async_test;
+    use futures::Future;
     use serde::{Deserialize, Serialize};
 
     use crate::{
-        handler::{GenericResponse, Json},
+        handler::{GenericResponse, InternalResult, Json},
+        middleware::{AfterMiddleware, PreMiddleware},
         request::{Method, Request},
         response::Response,
     };
@@ -575,12 +386,23 @@ mod test_server {
         Response::new(serde_json::to_string(&TestStruct { correct: true }).unwrap())
     }
 
-    async fn run_test(server: &Server<'static>, req: Request<String>) -> GenericResponse {
+    async fn run_test<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+        server: &Server<PreM, AfterM>,
+        req: Request<String>,
+    ) -> GenericResponse
+    where
+        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+        FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+        ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+        FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+        ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+    {
         let method = req.method();
 
         let path = req.uri().path().to_string();
 
-        let handler = server.find_handler(method, path.as_str());
+        let handler = server.find_route(method, path.as_str());
 
         assert!(handler.is_some());
 
@@ -591,7 +413,7 @@ mod test_server {
     async fn test_handler_receiving_req_and_res() -> std::io::Result<()> {
         let mut server = Server::new();
 
-        server.add_handler(
+        server.method(
             Method::GET,
             "/aaaa/bbbb",
             test_handler_with_req_and_res,
@@ -752,12 +574,15 @@ mod test_connection_loop {
     use std::sync::Arc;
 
     use async_std_test::async_test;
+    use futures::Future;
     use serde::{Deserialize, Serialize};
 
+    use crate::handler::InternalResult;
+    use crate::middleware::{AfterMiddleware, PreMiddleware};
     use crate::request::Method;
     use crate::response::Response;
-    use crate::server::connection_loop;
     use crate::server::test_utils::MockTcpStream;
+    use crate::server::{connection_loop, handle_stream};
     use crate::{handler::Json, request::Request, server::Server};
 
     #[derive(Debug, Deserialize, Serialize, PartialEq)]
@@ -794,7 +619,17 @@ mod test_connection_loop {
         request: Request<String>,
     }
 
-    async fn run_test(server: Arc<Server<'static>>, test_config: TestConfig) {
+    async fn run_test<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+        server: Arc<Server<PreM, AfterM>>,
+        test_config: TestConfig,
+    ) where
+        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+        FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+        ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+        FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+        ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+    {
         // TODO: Implement ToString for Request
         let request = test_config.request;
         let response = test_config.response;
@@ -814,7 +649,7 @@ mod test_connection_loop {
             write_data: vec![],
         };
 
-        connection_loop(server, &mut stream).await.unwrap();
+        let response_a = connection_loop(server, &mut stream).await;
 
         // TODO: Implement ToString for Response
         let expected_contents = response.body();
@@ -827,7 +662,9 @@ mod test_connection_loop {
             expected_contents
         );
 
-        assert!(stream.write_data.starts_with(expected_response.as_bytes()));
+        assert!(response_a
+            .map_or_else(|err| format!("HTTP/1.1 {}", err), |res| res)
+            .starts_with(&expected_response));
     }
 
     macro_rules! test_connection_loop {
@@ -887,7 +724,18 @@ mod test_connection_loop {
         Json::default()
     );
 
-    async fn test_for_error(server: Arc<Server<'static>>, request: String, response: String) {
+    async fn test_for_error<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
+        server: Arc<Server<PreM, AfterM>>,
+        request: String,
+        response: String,
+    ) where
+        PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
+        FutP: Future<Output = ResultP> + std::marker::Send + 'static,
+        ResultP: Into<InternalResult<Request<String>>> + std::marker::Send + 'static,
+        AfterM: AfterMiddleware<FutCallResponse = FutA> + 'static,
+        FutA: Future<Output = ResultA> + std::marker::Send + 'static,
+        ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
+    {
         // TODO: Implement ToString for Request
         let mut stream = MockTcpStream {
             read_data: request.into_bytes(),
@@ -899,7 +747,7 @@ mod test_connection_loop {
         // TODO: Implement ToString for Response
         println!("{:?}", error);
         match error {
-            Ok(_) => assert!(stream.write_data.starts_with(response.as_bytes())),
+            Ok(res) => assert!(res.starts_with(&response)),
             Err(err) => assert!(err.to_string().starts_with(response.as_str())),
         }
     }
