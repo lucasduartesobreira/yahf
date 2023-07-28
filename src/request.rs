@@ -80,7 +80,10 @@ impl Builder {
 
     pub fn body<T>(self, body: T) -> Request<T> {
         Request {
-            request: self.builder.body(body).unwrap(),
+            request: self
+                .builder
+                .body(body)
+                .unwrap(),
         }
     }
 
@@ -98,7 +101,9 @@ impl Builder {
         <HttpHeaderValue as TryFrom<V>>::Error: Into<http::Error>,
     {
         Self {
-            builder: self.builder.header(key, value),
+            builder: self
+                .builder
+                .header(key, value),
         }
     }
 }

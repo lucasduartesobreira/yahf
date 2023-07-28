@@ -63,23 +63,29 @@ impl<'a> HandlerSelect<'a> {
 
         match (
             actual_node.childrens.as_mut(),
-            actual_node.wildcard_node.as_mut(),
+            actual_node
+                .wildcard_node
+                .as_mut(),
         ) {
             (None, None) => {}
             (None, Some(wildcard)) => {
                 Self::rec_apply(wildcard, middleware_factory);
             }
             (Some(childrens), None) => {
-                childrens.iter_mut().for_each(|(_, node)| {
-                    Self::rec_apply(node, middleware_factory.clone());
-                });
+                childrens
+                    .iter_mut()
+                    .for_each(|(_, node)| {
+                        Self::rec_apply(node, middleware_factory.clone());
+                    });
             }
             (Some(childrens), Some(wildcard)) => {
                 Self::rec_apply(wildcard, middleware_factory.clone());
 
-                childrens.iter_mut().for_each(|(_, node)| {
-                    Self::rec_apply(node, middleware_factory.clone());
-                });
+                childrens
+                    .iter_mut()
+                    .for_each(|(_, node)| {
+                        Self::rec_apply(node, middleware_factory.clone());
+                    });
             }
         };
     }
@@ -102,14 +108,18 @@ impl<'a> HandlerSelect<'a> {
                 self.rec_extend(*wildcard_node, path);
             }
             (Some(childrens), None) => {
-                childrens.into_iter().for_each(|(next_path_segment, node)| {
-                    self.rec_extend(node, format!("{}/{}", path, next_path_segment));
-                });
+                childrens
+                    .into_iter()
+                    .for_each(|(next_path_segment, node)| {
+                        self.rec_extend(node, format!("{}/{}", path, next_path_segment));
+                    });
             }
             (Some(childrens), Some(wildcard_node)) => {
-                childrens.into_iter().for_each(|(next_path_segment, node)| {
-                    self.rec_extend(node, format!("{}/{}", path, next_path_segment));
-                });
+                childrens
+                    .into_iter()
+                    .for_each(|(next_path_segment, node)| {
+                        self.rec_extend(node, format!("{}/{}", path, next_path_segment));
+                    });
 
                 path.push_str("{wildcard_node}");
                 self.rec_extend(*wildcard_node, path);
@@ -119,7 +129,10 @@ impl<'a> HandlerSelect<'a> {
 
     pub fn insert(&mut self, path: &'a str, handler: BoxedHandler) {
         let mut node = &mut self.root;
-        for splitted_path in path.split('/').filter(|x| !x.is_empty()) {
+        for splitted_path in path
+            .split('/')
+            .filter(|x| !x.is_empty())
+        {
             if is_parameter_declaration(splitted_path) {
                 node = node.add_wildcard_node();
                 continue;
@@ -137,20 +150,27 @@ impl<'a> HandlerSelect<'a> {
     pub fn get(&self, path: &str) -> Option<RefHandler<'_>> {
         let mut root = &self.root;
 
-        for splitted_path in path.split('/').filter(|x| !x.is_empty()) {
+        for splitted_path in path
+            .split('/')
+            .filter(|x| !x.is_empty())
+        {
             match (&root.childrens, &root.wildcard_node) {
                 (None, None) => return None,
                 (None, Some(wildcard_node)) => root = wildcard_node.as_ref(),
                 (Some(childrens), None) => {
                     if childrens.contains_key(splitted_path) {
-                        root = childrens.get(splitted_path).unwrap();
+                        root = childrens
+                            .get(splitted_path)
+                            .unwrap();
                     } else {
                         return None;
                     }
                 }
                 (Some(childrens), Some(wildcard_node)) => {
                     if childrens.contains_key(splitted_path) {
-                        root = childrens.get(splitted_path).unwrap();
+                        root = childrens
+                            .get(splitted_path)
+                            .unwrap();
                         continue;
                     }
 
@@ -159,18 +179,27 @@ impl<'a> HandlerSelect<'a> {
             }
         }
 
-        root.value.as_ref().map(|boxed| boxed.as_ref())
+        root.value
+            .as_ref()
+            .map(|boxed| boxed.as_ref())
     }
 }
 
 impl<'a> Node<'a> {
     fn add_wildcard_node(&mut self) -> &mut Self {
         if self.wildcard_node.is_some() {
-            return self.wildcard_node.as_mut().unwrap().as_mut();
+            return self
+                .wildcard_node
+                .as_mut()
+                .unwrap()
+                .as_mut();
         }
 
         self.wildcard_node = Some(Box::default());
-        self.wildcard_node.as_mut().unwrap().as_mut()
+        self.wildcard_node
+            .as_mut()
+            .unwrap()
+            .as_mut()
     }
 
     fn apply_middlewares<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
@@ -205,7 +234,9 @@ impl<'a> Node<'a> {
         }
 
         match self.childrens.as_mut() {
-            Some(childrens) => childrens.entry(path).or_insert(Node::default()),
+            Some(childrens) => childrens
+                .entry(path)
+                .or_insert(Node::default()),
             None => {
                 unreachable!("LALALALALA")
             }

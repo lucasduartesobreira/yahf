@@ -108,9 +108,13 @@ where
         let pre = move |req: Result<Request<String>>| {
             let cloned_pre_middleware = self.pre;
             async move {
-                let resp = cloned_pre_middleware.call(req.into()).await;
+                let resp = cloned_pre_middleware
+                    .call(req.into())
+                    .await;
                 let resp_internal_result: InternalResult<Request<String>> = resp.into();
-                other_pre.call(resp_internal_result).await
+                other_pre
+                    .call(resp_internal_result)
+                    .await
             }
         };
 
@@ -129,8 +133,12 @@ where
         let after = move |res: Result<Response<String>>| {
             let cloned_after_middleware = self.after;
             async move {
-                let resp = cloned_after_middleware.call(res.into()).await;
-                other_after.call(resp.into()).await
+                let resp = cloned_after_middleware
+                    .call(res.into())
+                    .await;
+                other_after
+                    .call(resp.into())
+                    .await
             }
         };
 
@@ -154,11 +162,17 @@ where
             let after = self.after;
             let runner = _runner.clone();
             async move {
-                let req_updated: InternalResult<Request<String>> =
-                    pre.call(req.into_inner()).await.into();
-                let runner_resp = runner.call_runner(req_updated).await;
-                let runner_resp_updated: InternalResult<Response<String>> =
-                    after.call(runner_resp).await.into();
+                let req_updated: InternalResult<Request<String>> = pre
+                    .call(req.into_inner())
+                    .await
+                    .into();
+                let runner_resp = runner
+                    .call_runner(req_updated)
+                    .await;
+                let runner_resp_updated: InternalResult<Response<String>> = after
+                    .call(runner_resp)
+                    .await
+                    .into();
                 runner_resp_updated.into()
             }
         }
@@ -182,7 +196,9 @@ mod test {
     async fn pre_middleware(_req: Result<Request<String>>) -> Result<Request<String>> {
         Ok(Request::new(format!(
             "{}\nFrom middleware",
-            _req.into_inner().unwrap().body()
+            _req.into_inner()
+                .unwrap()
+                .body()
         )))
         .into()
     }
@@ -206,7 +222,9 @@ mod test {
     async fn after_middleware(res: Result<Response<String>>) -> Result<Response<String>> {
         Ok(Response::new(format!(
             "{}\nFrom the after middleware",
-            res.into_inner().unwrap().body()
+            res.into_inner()
+                .unwrap()
+                .body()
         )))
         .into()
     }
@@ -217,7 +235,9 @@ mod test {
         Err(Error::new(
             format!(
                 "{}\nFrom middleware short-circuiting",
-                res.into_inner().unwrap().body()
+                res.into_inner()
+                    .unwrap()
+                    .body()
             ),
             200,
         ))

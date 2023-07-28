@@ -155,7 +155,8 @@ where
     BasicRunnerOutput: RunnerOutput<Serializer>,
 {
     fn try_into(self) -> InternalResult<Response<String>> {
-        self.0.and_then(|resp| BasicRunnerOutput::try_into(resp))
+        self.0
+            .and_then(|resp| BasicRunnerOutput::try_into(resp))
     }
 }
 

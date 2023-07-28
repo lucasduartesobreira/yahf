@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    handler::InternalResult,
+    handler::{InternalResult, Runner},
     middleware::{AfterMiddleware, PreMiddleware},
     request::{self, HttpHeaderName, HttpHeaderValue, Request, Uri},
     response::Response,
@@ -68,6 +68,30 @@ impl Server<(), ()> {
     }
 }
 
+macro_rules! method_reroute {
+    ($method: ident) => {
+        pub fn $method<FnIn, FnOut, Deserializer, Serializer, R>(
+            mut self,
+            path: &'static str,
+            handler: R,
+            deserializer: &Deserializer,
+            serializer: &Serializer,
+        ) -> Self
+        where
+            R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+            FnIn: 'static,
+            FnOut: 'static,
+            Deserializer: 'static,
+            Serializer: 'static,
+        {
+            let router = self.router;
+            let router = router.$method(path, handler, deserializer, serializer);
+            self.router = router;
+            self
+        }
+    };
+}
+
 impl<PreM, FutP, ResultP, AfterM, FutA, ResultA> Server<PreM, AfterM>
 where
     PreM: PreMiddleware<FutCallResponse = FutP> + 'static,
@@ -77,6 +101,38 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
+    method_reroute!(get);
+    method_reroute!(put);
+    method_reroute!(delete);
+    method_reroute!(post);
+    method_reroute!(trace);
+    method_reroute!(options);
+    method_reroute!(connect);
+    method_reroute!(patch);
+    method_reroute!(head);
+    method_reroute!(all);
+
+    pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
+        mut self,
+        method: Method,
+        path: &'static str,
+        handler: R,
+        deserializer: &Deserializer,
+        serializer: &Serializer,
+    ) -> Self
+    where
+        R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
+        FnIn: 'static,
+        FnOut: 'static,
+        Deserializer: 'static,
+        Serializer: 'static,
+    {
+        let router = self.router;
+        let router = router.method(method, path, handler, deserializer, serializer);
+        self.router = router;
+        self
+    }
+
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         self,
         router: Router<OtherPreM, OtherAfterM>,
@@ -140,7 +196,9 @@ where
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
     let server = Arc::new(server);
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let listener = TcpListener::bind(addr)
+        .await
+        .unwrap();
     println!("Start listening on {}", listener.local_addr().unwrap());
     let mut incoming = listener.incoming();
 
@@ -172,8 +230,10 @@ where
             }
         };
 
-        stream.write_all(response.as_bytes()).await;
-        stream.flush().await;
+        let _ = stream
+            .write_all(response.as_bytes())
+            .await;
+        let _ = stream.flush().await;
     })
 }
 
@@ -241,7 +301,9 @@ where
         None => Err(NOT_FOUND)?,
     };
 
-    let mut request_builder = request_builder.method(method).uri(uri);
+    let mut request_builder = request_builder
+        .method(method)
+        .uri(uri);
     let mut content_length = 0usize;
 
     loop {
@@ -262,7 +324,10 @@ where
         match splitted_header {
             Some((header, value)) if http::header::CONTENT_LENGTH == header => {
                 request_builder = request_builder.header("Content-Length", value);
-                content_length = value.trim().parse::<usize>().unwrap();
+                content_length = value
+                    .trim()
+                    .parse::<usize>()
+                    .unwrap();
             }
             Some((header, value)) => {
                 match (
@@ -297,7 +362,10 @@ where
     let response_string = format!(
         "HTTP/1.1 {} {}\r\n{}\r\n{}",
         response.status().as_u16(),
-        response.status().canonical_reason().unwrap(),
+        response
+            .status()
+            .canonical_reason()
+            .unwrap(),
         response
             .headers()
             .into_iter()
@@ -333,7 +401,10 @@ mod test_utils {
         ) -> Poll<Result<usize, Error>> {
             let size: usize = min(self.read_data.len(), buf.len());
             buf[..size].copy_from_slice(&self.read_data[..size]);
-            self.read_data = self.read_data.drain(size..).collect::<Vec<_>>();
+            self.read_data = self
+                .read_data
+                .drain(size..)
+                .collect::<Vec<_>>();
             Poll::Ready(Ok(size))
         }
     }
@@ -407,14 +478,18 @@ mod test_server_routing {
 
         assert!(handler.is_some());
 
-        handler.unwrap().call(req.into()).await.unwrap()
+        handler
+            .unwrap()
+            .call(req.into())
+            .await
+            .unwrap()
     }
 
     #[async_test]
     async fn test_handler_receiving_req_and_res() -> std::io::Result<()> {
-        let mut server = Server::new();
+        let server = Server::new();
 
-        server.method(
+        let server = server.method(
             Method::GET,
             "/aaaa/bbbb",
             test_handler_with_req_and_res,
@@ -438,9 +513,9 @@ mod test_server_routing {
 
     #[async_test]
     async fn test_server_fn_all() -> std::io::Result<()> {
-        let mut server = Server::new();
+        let server = Server::new();
 
-        server.all(
+        let server = server.all(
             "/test/all",
             test_handler_with_req_and_res,
             &Json::new(),
@@ -450,7 +525,9 @@ mod test_server_routing {
         let req_body = serde_json::json!({ "correct": false }).to_string();
         let expected_res_body = serde_json::json!({ "correct": true }).to_string();
 
-        let request = Request::builder().uri("/test/all").body(req_body.clone());
+        let request = Request::builder()
+            .uri("/test/all")
+            .body(req_body.clone());
 
         let response = run_test(&server, request).await;
 
@@ -535,9 +612,9 @@ mod test_server_routing {
         ($sla:tt, $mtd:ident, $upper_mtd:ident) => {
     #[async_test]
     async fn $sla() -> std::io::Result<()> {
-        let mut server = Server::new();
+        let  server = Server::new();
 
-        server.$mtd(
+        let server = server.$mtd(
             "/test/all",
             test_handler_with_req_and_res,
             &Json::new(),
@@ -655,7 +732,9 @@ mod test_connection_loop {
         // TODO: Implement ToString for Response
         let expected_contents = response.body();
         let expected_status_code = response.status().as_u16();
-        let expected_status_message = response.status().canonical_reason();
+        let expected_status_message = response
+            .status()
+            .canonical_reason();
         let expected_response = format!(
             "HTTP/1.1 {} {}\r\n\r\n{}",
             expected_status_code,
@@ -672,8 +751,8 @@ mod test_connection_loop {
         ($test_name: tt, $fn: ident, $des: expr) => {
     #[async_test]
     async fn $test_name() -> std::io::Result<()> {
-        let mut server = Server::new();
-        server.all(
+        let  server = Server::new();
+        let server = server.all(
             "/aaaaa",
             $fn,
             &$des,
@@ -749,7 +828,9 @@ mod test_connection_loop {
         println!("{:?}", error);
         match error {
             Ok(res) => assert!(res.starts_with(&response)),
-            Err(err) => assert!(err.to_string().starts_with(response.as_str())),
+            Err(err) => assert!(err
+                .to_string()
+                .starts_with(response.as_str())),
         }
     }
 
@@ -757,8 +838,8 @@ mod test_connection_loop {
         ($test_name:ident, $fn: ident, $des: expr, $send:literal, $expected: literal) => {
             #[async_test]
             async fn $test_name() -> std::io::Result<()> {
-                let mut server = Server::new();
-                server.all("/aaaaa", $fn, &$des, &Json::default());
+                let server = Server::new();
+                let server = server.all("/aaaaa", $fn, &$des, &Json::default());
 
                 let server = Arc::new(server);
 

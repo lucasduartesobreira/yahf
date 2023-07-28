@@ -23,7 +23,10 @@ impl ResponseBuilder {
 
     pub fn body<T>(self, body: T) -> Response<T> {
         Response {
-            response: self.builder.body(body).unwrap(),
+            response: self
+                .builder
+                .body(body)
+                .unwrap(),
         }
     }
 }

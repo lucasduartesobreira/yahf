@@ -50,22 +50,23 @@ impl Router<(), ()> {
 macro_rules! method_insert {
     ($fn: ident, $method: expr) => {
         pub fn $fn<FnIn, FnOut, Deserializer, Serializer, R>(
-            &mut self,
+            self,
             path: &'static str,
             handler: R,
             deserializer: &Deserializer,
             serializer: &Serializer,
-        ) where
+        ) -> Self
+        where
             R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
             FnIn: 'static,
             FnOut: 'static,
             Deserializer: 'static,
             Serializer: 'static,
         {
-            let built_with_middleware =
-                self.middleware_factory
-                    .clone()
-                    .build(handler, deserializer, serializer);
+            let built_with_middleware = self
+                .middleware_factory
+                .clone()
+                .build(handler, deserializer, serializer);
 
             self.method(
                 $method,
@@ -110,7 +111,12 @@ where
             router.patch,
             router.head,
         ]
-        .map(|handler| handler.apply(self.middleware_factory.clone()));
+        .map(|handler| {
+            handler.apply(
+                self.middleware_factory
+                    .clone(),
+            )
+        });
 
         self.get.extend(get);
         self.put.extend(put);
@@ -134,7 +140,9 @@ where
         NewFut: Future<Output = NewResultP>,
         NewResultP: Into<InternalResult<Request<String>>>,
     {
-        let new_factory = self.middleware_factory.pre(middleware);
+        let new_factory = self
+            .middleware_factory
+            .pre(middleware);
         Router {
             middleware_factory: Arc::new(new_factory),
             get: self.get,
@@ -158,7 +166,9 @@ where
         NewFut: Future<Output = NewResultA>,
         NewResultA: Into<InternalResult<Response<String>>>,
     {
-        let new_factory = self.middleware_factory.after(middleware);
+        let new_factory = self
+            .middleware_factory
+            .after(middleware);
         Router {
             middleware_factory: Arc::new(new_factory),
             get: self.get,
@@ -174,13 +184,14 @@ where
     }
 
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
+        mut self,
         method: Method,
         path: &'static str,
         handler: R,
         deserializer: &Deserializer,
         serializer: &Serializer,
-    ) where
+    ) -> Self
+    where
         R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
         FnIn: 'static,
         FnOut: 'static,
@@ -225,7 +236,9 @@ where
                 Box::new(encapsulate_runner(handler, deserializer, serializer)),
             ),
             _ => unreachable!("HTTP methods allowed: GET, POST, PUT, DELETE, TRACE, OPTIONS, CONNECT, PATCH, HEAD"),
-        }
+        };
+
+        self
     }
 
     method_insert!(get, Method::GET);
@@ -239,27 +252,29 @@ where
     method_insert!(head, Method::HEAD);
 
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
-        &mut self,
+        self,
         path: &'static str,
         handler: R,
         deserializer: &Deserializer,
         serializer: &Serializer,
-    ) where
+    ) -> Self
+    where
         R: 'static + Runner<(FnIn, Deserializer), (FnOut, Serializer)>,
         FnIn: 'static,
         FnOut: 'static,
         Deserializer: 'static,
         Serializer: 'static,
     {
-        self.get(path, handler.clone(), deserializer, serializer);
-        self.put(path, handler.clone(), deserializer, serializer);
-        self.delete(path, handler.clone(), deserializer, serializer);
-        self.post(path, handler.clone(), deserializer, serializer);
-        self.trace(path, handler.clone(), deserializer, serializer);
-        self.options(path, handler.clone(), deserializer, serializer);
-        self.connect(path, handler.clone(), deserializer, serializer);
-        self.patch(path, handler.clone(), deserializer, serializer);
-        self.head(path, handler, deserializer, serializer);
+        let router = self.get(path, handler.clone(), deserializer, serializer);
+        let router = router.put(path, handler.clone(), deserializer, serializer);
+        let router = router.delete(path, handler.clone(), deserializer, serializer);
+        let router = router.post(path, handler.clone(), deserializer, serializer);
+        let router = router.trace(path, handler.clone(), deserializer, serializer);
+        let router = router.options(path, handler.clone(), deserializer, serializer);
+        let router = router.connect(path, handler.clone(), deserializer, serializer);
+        let router = router.patch(path, handler.clone(), deserializer, serializer);
+
+        router.head(path, handler, deserializer, serializer)
     }
 
     #[allow(dead_code)]
@@ -378,7 +393,7 @@ mod test {
 
     macro_rules! test_router_insert_and_find {
         ($test_name: ident, $router_method: expr, $method: expr, $runner: expr,$des: expr, $body: literal, $expected_body: literal, [$($pre: expr),*], ($($after:expr),*)) => {
-            #[async_test]
+            #[async_std_test::async_test]
             async fn $test_name() -> std::io::Result<()> {
                 let request = super::utils::create_request($body.to_owned(), $method);
                 let router = Router::new();
@@ -388,10 +403,8 @@ mod test {
                     [$($pre),*],
                     ($($after),*)
                 );
-                let mut router = router;
-                let router = &mut router;
-                $router_method(router, "/path/to", $runner, $des, &String::with_capacity(0));
-                let handler = Router::find_route(router, request.method(), "/path/to");
+                let router = $router_method(router, "/path/to", $runner, $des, &String::with_capacity(0));
+                let handler = Router::find_route(&router, request.method(), "/path/to");
 
                 assert!(handler.is_some());
 
@@ -415,7 +428,6 @@ mod test {
             mod $mod_name {
                 use crate::request::Method;
                 use crate::router::Router;
-                use async_std_test::async_test;
 
                 test_router_insert_and_find!(
                     test_insert_and_find_runner_void_string,
@@ -564,7 +576,9 @@ mod test {
         use crate::response::Response;
 
         pub async fn pre_transform(req: Result<Request<String>>) -> Result<Request<String>> {
-            req.into_inner().map(|_| Request::new("PM1".into())).into()
+            req.into_inner()
+                .map(|_| Request::new("PM1".into()))
+                .into()
         }
 
         pub async fn pre_generate_error(_req: Result<Request<String>>) -> Result<Request<String>> {
@@ -572,11 +586,16 @@ mod test {
         }
 
         pub async fn pre_handle_error(req: Result<Request<String>>) -> Result<Request<String>> {
-            Ok(req.into_inner().unwrap_or(Request::new("PM3".into()))).into()
+            Ok(req
+                .into_inner()
+                .unwrap_or(Request::new("PM3".into())))
+            .into()
         }
 
         pub async fn after_transform(res: Result<Response<String>>) -> Result<Response<String>> {
-            res.into_inner().map(|_| Response::new("AM1".into())).into()
+            res.into_inner()
+                .map(|_| Response::new("AM1".into()))
+                .into()
         }
 
         pub async fn after_generate_error(
@@ -586,7 +605,10 @@ mod test {
         }
 
         pub async fn after_handle_error(res: Result<Response<String>>) -> Result<Response<String>> {
-            Ok(res.into_inner().unwrap_or(Response::new("AM3".into()))).into()
+            Ok(res
+                .into_inner()
+                .unwrap_or(Response::new("AM3".into())))
+            .into()
         }
     }
 
@@ -600,8 +622,6 @@ mod test {
                         Router,
                     },
                 };
-
-                use async_std_test::async_test;
 
                 test_router_insert_and_find!(
                     test_pre_transform,
