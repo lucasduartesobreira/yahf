@@ -78,3 +78,38 @@ impl<T> Response<T> {
         self.response.headers_mut()
     }
 }
+
+impl Response<String> {
+    #[inline]
+    pub fn format(self) -> String {
+        let mut response = self;
+        let content_size = response.body().len();
+        response
+            .headers_mut()
+            .append("Content-Length", content_size.into());
+
+        let status = response.status();
+
+        let response_string = format!(
+            "HTTP/1.1 {} {}\r\n{}\r\n{}",
+            status.as_u16(),
+            status
+                .canonical_reason()
+                .unwrap(),
+            response
+                .headers()
+                .into_iter()
+                .fold(String::with_capacity(1024), |mut acc, (name, value)| {
+                    acc.push_str(format!("{}:{}\r\n", name, value.to_str().unwrap()).as_str());
+                    acc
+                }),
+            response.body()
+        );
+
+        response_string
+    }
+
+    pub fn into_inner(self) -> HttpResponse<String> {
+        self.response
+    }
+}
