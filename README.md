@@ -1,4 +1,11 @@
-# Yet Another HTTP Framework
+
+<p align="center">
+  <img height="128" src="https://github.com/lucasduartesobreira/yahf/assets/58451227/ad1b8cb2-8f40-497f-83ab-1617179eb8cf" alt="YAHF">
+</p>
+
+<h1 align="center">
+    <b>Yet Another HTTP Framework</b>
+</h1>
 
 > **Warning: Currently in the experimental phase, everything can change.**
 
@@ -64,7 +71,7 @@ let some_router: Router = Router::new();
 some_router.all('/user', /*Some handler*/, &(), &Json);
 
 let another_router: Router = Router::new();
-another_router:.all('/function', /*Some handler*/, &(), &String);
+another_router.all('/function', /*Some handler*/, &(), &String);
 
 let updated_server: Server = server.router(some_router)?.router(another_router)?;
 ```
@@ -89,7 +96,7 @@ It'll be supported two types of middleware functions: `PreMiddleware` and `After
 Apply transformations to `Request`:
 
 ```rust
-async fn some_middleware(request: Request<String>) -> Request<String> { /*Function body*/ }
+async fn some_middleware(request: Result<Request<String>>) -> Result<Request<String>> { /*Function body*/ }
 
 
 // When building a `Router` or a `Server`
@@ -102,7 +109,7 @@ let router = router.pre(some_middleware);
 Apply transformations to `Response`:
 
 ```rust
-async fn some_after_middleware(response: Response<String>) -> Response<String> { /*Function body*/}
+async fn some_after_middleware(response: Result<Response<String>>) -> Result<Response<String>> { /*Function body*/}
 
 
 // When building a `Router` or a `Server`
