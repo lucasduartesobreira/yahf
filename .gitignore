@@ -1,2 +1,6 @@
 /target
 /Cargo.lock
+*.data*
+*perf*
+*linux-perf*
+*flamegraph*

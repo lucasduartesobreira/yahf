@@ -1,8 +1,11 @@
 extern crate yahf;
 
+use std::net::SocketAddr;
+
 use yahf::server::Server;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let a = Server::new().get(
         "/",
         || async { "Hello world".to_string() },
@@ -10,6 +13,7 @@ fn main() {
         &String::with_capacity(0),
     );
 
-    a.listen("localhost:8000")
+    a.listen(SocketAddr::from(([127, 0, 0, 1], 8000)))
+        .await
         .unwrap();
 }

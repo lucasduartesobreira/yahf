@@ -61,6 +61,10 @@ impl<T> Request<T> {
     pub fn headers(&self) -> &HttpHeaderMap<HttpHeaderValue> {
         self.request.headers()
     }
+
+    pub fn from_inner(req: HttpRequest<T>) -> Self {
+        Self { request: req }
+    }
 }
 
 pub struct Builder {

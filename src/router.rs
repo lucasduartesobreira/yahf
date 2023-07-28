@@ -393,7 +393,7 @@ mod test {
 
     macro_rules! test_router_insert_and_find {
         ($test_name: ident, $router_method: expr, $method: expr, $runner: expr,$des: expr, $body: literal, $expected_body: literal, [$($pre: expr),*], ($($after:expr),*)) => {
-            #[async_std_test::async_test]
+            #[tokio::test]
             async fn $test_name() -> std::io::Result<()> {
                 let request = super::utils::create_request($body.to_owned(), $method);
                 let router = Router::new();

@@ -73,4 +73,12 @@ impl<T> Response<T> {
     pub fn headers(&self) -> &HeaderMap<HeaderValue> {
         self.response.headers()
     }
+
+    pub fn headers_mut(&mut self) -> &mut HeaderMap<HeaderValue> {
+        self.response.headers_mut()
+    }
+
+    pub fn into_inner(self) -> HttpResponse<T> {
+        self.response
+    }
 }
