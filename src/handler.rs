@@ -7,9 +7,14 @@ use std::{
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{error::Error, request::Request, response::Response};
+use crate::{
+    error::Error,
+    request::Request,
+    response::Response,
+    runner_input::{BodyDeserializer, RunnerInput},
+};
 
-type StandardBodyType = String;
+pub(crate) type StandardBodyType = String;
 pub type GenericRequest = Request<StandardBodyType>;
 pub type GenericResponse = Response<StandardBodyType>;
 pub type BoxedHandler = Box<dyn BoxedRunner>;
@@ -63,65 +68,10 @@ impl<T> DerefMut for Result<T> {
     }
 }
 
-pub trait BodyDeserializer {
-    type Item: DeserializeOwned;
-
-    fn deserialize(content: &StandardBodyType) -> InternalResult<Self::Item>
-    where
-        Self: std::marker::Sized;
-}
-
 pub trait BodySerializer {
     type Item;
 
     fn serialize(content: Self::Item) -> InternalResult<StandardBodyType>;
-}
-
-/// Describes a type that can be extracted using a BodyExtractors
-pub trait RunnerInput<Extractor> {
-    fn try_into(input: InternalResult<Request<StandardBodyType>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized;
-}
-
-impl<BodyType, Extractor> RunnerInput<Extractor> for BodyType
-where
-    Extractor: BodyDeserializer<Item = BodyType>,
-    BodyType: DeserializeOwned,
-{
-    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        input.and_then(|input| Extractor::deserialize(input.body()))
-    }
-}
-
-impl<BodyType, Extractor> RunnerInput<Extractor> for Request<BodyType>
-where
-    Extractor: BodyDeserializer<Item = BodyType>,
-    BodyType: DeserializeOwned,
-{
-    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        input.and_then(|input| input.and_then(|body| Extractor::deserialize(&body)))
-    }
-}
-
-impl<BodyType, Extractor, RInput> RunnerInput<Extractor> for Result<RInput>
-where
-    Extractor: BodyDeserializer<Item = BodyType>,
-    BodyType: DeserializeOwned,
-    RInput: RunnerInput<Extractor>,
-{
-    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        Ok(RInput::try_into(input).into())
-    }
 }
 
 pub trait RunnerOutput<Serializer> {
