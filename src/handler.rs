@@ -12,6 +12,7 @@ use crate::{
     request::Request,
     response::Response,
     runner_input::{BodyDeserializer, RunnerInput},
+    runner_output::{BodySerializer, RunnerOutput},
 };
 
 pub(crate) type StandardBodyType = String;
@@ -65,48 +66,6 @@ impl<T> Deref for Result<T> {
 impl<T> DerefMut for Result<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut()
-    }
-}
-
-pub trait BodySerializer {
-    type Item;
-
-    fn serialize(content: Self::Item) -> InternalResult<StandardBodyType>;
-}
-
-pub trait RunnerOutput<Serializer> {
-    fn try_into(self) -> InternalResult<Response<String>>;
-}
-
-impl<BodyType, Serializer> RunnerOutput<Serializer> for Response<BodyType>
-where
-    Serializer: BodySerializer<Item = BodyType>,
-    BodyType: Serialize,
-{
-    fn try_into(self) -> InternalResult<Response<String>> {
-        self.and_then(|body| Serializer::serialize(body))
-    }
-}
-
-impl<BodyType, Serializer> RunnerOutput<Serializer> for BodyType
-where
-    Serializer: BodySerializer<Item = BodyType>,
-    BodyType: Serialize,
-{
-    fn try_into(self) -> InternalResult<Response<String>> {
-        Serializer::serialize(self).map(Response::new)
-    }
-}
-
-impl<BodyType, Serializer, BasicRunnerOutput> RunnerOutput<Serializer> for Result<BasicRunnerOutput>
-where
-    Serializer: BodySerializer<Item = BodyType>,
-    BodyType: Serialize,
-    BasicRunnerOutput: RunnerOutput<Serializer>,
-{
-    fn try_into(self) -> InternalResult<Response<String>> {
-        self.0
-            .and_then(|resp| BasicRunnerOutput::try_into(resp))
     }
 }
 
