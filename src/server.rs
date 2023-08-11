@@ -226,7 +226,7 @@ where
     let req_new = hyper::Request::from_parts(parts, str);
 
     let (parts, body) = handler
-        .call(Ok(Request::from_inner(req_new)))
+        .call(Ok(Request::from(req_new)))
         .await
         .map_or_else(|err| err.into(), |res| res)
         .into_inner()

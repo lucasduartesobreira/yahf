@@ -1,3 +1,5 @@
+use std::ops::{Deref, DerefMut};
+
 use crate::handler::InternalResult;
 
 pub type Method = http::Method;
@@ -8,10 +10,26 @@ pub type HttpHeaderName = http::HeaderName;
 pub type HttpHeaderValue = http::HeaderValue;
 pub type HttpHeaderMap<HeaderValue> = http::HeaderMap<HeaderValue>;
 
+#[derive(Default)]
 pub struct Request<T>(HttpRequest<T>);
 
+impl<T> Deref for Request<T> {
+    type Target = http::Request<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Request<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl Request<()> {
-    pub fn builder() -> Builder {
+    #[allow(dead_code)]
+    pub(crate) fn builder() -> Builder {
         Builder {
             builder: HttpBuilder::new(),
         }
@@ -23,10 +41,6 @@ impl<T> Request<T> {
         Self(HttpRequest::new(value))
     }
 
-    pub fn body(&self) -> &T {
-        self.0.body()
-    }
-
     // TODO: Valuate if this will keep this fn or move to an from_parts style
     pub fn and_then<BodyType>(
         self,
@@ -36,37 +50,18 @@ impl<T> Request<T> {
         callback(body).map(|body| Request(HttpRequest::from_parts(parts, body)))
     }
 
-    pub fn method(&self) -> &Method {
-        self.0.method()
-    }
-
-    pub fn method_mut(&mut self) -> &mut Method {
-        self.0.method_mut()
-    }
-
-    pub fn uri(&self) -> &Uri {
-        self.0.uri()
-    }
-
-    pub fn uri_mut(&mut self) -> &mut Uri {
-        self.0.uri_mut()
-    }
-
-    pub fn headers(&self) -> &HttpHeaderMap<HttpHeaderValue> {
-        self.0.headers()
-    }
-
-    pub fn from_inner(req: HttpRequest<T>) -> Self {
-        Self(req)
+    pub fn into_inner(self) -> HttpRequest<T> {
+        self.0
     }
 }
 
-pub struct Builder {
+pub(crate) struct Builder {
     pub builder: HttpBuilder,
 }
 
+#[allow(dead_code)]
 impl Builder {
-    pub fn uri<T>(self, uri: T) -> Self
+    pub(crate) fn uri<T>(self, uri: T) -> Self
     where
         Uri: TryFrom<T>,
         <Uri as TryFrom<T>>::Error: Into<http::Error>,
@@ -76,7 +71,7 @@ impl Builder {
         }
     }
 
-    pub fn body<T>(self, body: T) -> Request<T> {
+    pub(crate) fn body<T>(self, body: T) -> Request<T> {
         Request(
             self.builder
                 .body(body)
@@ -108,5 +103,11 @@ impl Builder {
 impl<T> From<Request<T>> for http::Request<T> {
     fn from(value: Request<T>) -> Self {
         value.0
+    }
+}
+
+impl<T> From<http::Request<T>> for Request<T> {
+    fn from(value: http::Request<T>) -> Self {
+        Request(value)
     }
 }
