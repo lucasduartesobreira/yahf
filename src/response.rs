@@ -4,31 +4,6 @@ use crate::handler::InternalResult;
 
 pub type HttpResponse<T> = http::Response<T>;
 type HttpResponseBuilder = http::response::Builder;
-type StatusCode = http::StatusCode;
-
-pub struct ResponseBuilder {
-    builder: HttpResponseBuilder,
-}
-
-impl ResponseBuilder {
-    pub fn status<T>(self, status: T) -> ResponseBuilder
-    where
-        StatusCode: TryFrom<T>,
-        <StatusCode as TryFrom<T>>::Error: Into<http::Error>,
-    {
-        ResponseBuilder {
-            builder: self.builder.status(status),
-        }
-    }
-
-    pub fn body<T>(self, body: T) -> Response<T> {
-        Response(
-            self.builder
-                .body(body)
-                .unwrap(),
-        )
-    }
-}
 
 #[derive(Debug)]
 pub struct Response<T>(HttpResponse<T>);
@@ -60,10 +35,8 @@ impl<T> From<Response<T>> for http::Response<T> {
 }
 
 impl Response<()> {
-    pub fn builder() -> ResponseBuilder {
-        ResponseBuilder {
-            builder: HttpResponseBuilder::new(),
-        }
+    pub fn builder() -> HttpResponseBuilder {
+        HttpResponseBuilder::new()
     }
 }
 

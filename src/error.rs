@@ -20,10 +20,26 @@ impl Error {
     }
 }
 
+impl From<http::Error> for Error {
+    fn from(value: http::Error) -> Self {
+        Self::new(value.to_string(), 500)
+    }
+}
+
 impl From<Error> for Response<String> {
     fn from(val: Error) -> Self {
         Response::builder()
             .status(val.code)
             .body(val.body)
+            .map_or_else(
+                |err| {
+                    http::Response::builder()
+                        .status(500)
+                        .body(err.to_string())
+                        .expect("Error creating the error")
+                },
+                |res| res,
+            )
+            .into()
     }
 }
