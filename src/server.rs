@@ -1,8 +1,11 @@
+use futures::StreamExt;
 use std::{
     convert::Infallible,
+    future::ready,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
     handler::{InternalResult, Runner},
@@ -15,11 +18,15 @@ use crate::{
 use futures::Future;
 use http::StatusCode;
 use hyper::{
-    server::conn::AddrStream,
+    server::{
+        accept,
+        conn::{AddrIncoming, AddrStream},
+    },
     service::{make_service_fn, service_fn},
 };
 
 use request::Method;
+use tls_listener::{AsyncTls, TlsListener};
 
 pub struct Server<PreM, AfterM> {
     router: Router<PreM, AfterM>,
@@ -188,6 +195,36 @@ where
         });
 
         let server = hyper::Server::bind(&addr).serve(make_svc);
+        server.await?;
+        Ok(())
+    }
+
+    pub async fn listen_tls<T: AsyncTls<C> + AsyncTls<AddrStream>, C: AsyncRead + AsyncWrite>(
+        self,
+        addr: std::net::SocketAddr,
+        tls: T,
+    ) -> Result<(), hyper::Error>
+    where
+        <T as AsyncTls<AddrStream>>::Error: Send + Sync + 'static,
+        <T as AsyncTls<AddrStream>>::Stream: Send + Unpin + AsyncWrite + AsyncRead + 'static,
+    {
+        let server = Arc::new(self);
+        let make_svc = make_service_fn(move |_| {
+            let server = server.clone();
+            let service = service_fn(move |req| handle_req(server.clone(), req));
+            async move { Ok::<_, Infallible>(service) }
+        });
+
+        let listener = TlsListener::new(tls, AddrIncoming::bind(&addr)?).filter(|conn| {
+            if let Err(err) = conn {
+                eprintln!("Error: {:?}", err);
+                ready(false)
+            } else {
+                ready(true)
+            }
+        });
+
+        let server = hyper::Server::builder(accept::from_stream(listener)).serve(make_svc);
         server.await?;
         Ok(())
     }
