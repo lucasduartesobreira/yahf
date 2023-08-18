@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::Future;
 
 use crate::{
-    handle_selector::HandlerSelect,
+    handle_selector::RouterTree,
     handler::{encapsulate_runner, RefHandler, Runner},
     middleware::{AfterMiddleware, MiddlewareFactory, PreMiddleware},
     request::{Method, Request},
@@ -13,15 +13,15 @@ use crate::{
 
 pub struct Router<PreM, AfterM> {
     middleware_factory: Arc<MiddlewareFactory<PreM, AfterM>>,
-    get: HandlerSelect<'static>,
-    put: HandlerSelect<'static>,
-    delete: HandlerSelect<'static>,
-    post: HandlerSelect<'static>,
-    trace: HandlerSelect<'static>,
-    options: HandlerSelect<'static>,
-    connect: HandlerSelect<'static>,
-    patch: HandlerSelect<'static>,
-    head: HandlerSelect<'static>,
+    get: RouterTree<'static>,
+    put: RouterTree<'static>,
+    delete: RouterTree<'static>,
+    post: RouterTree<'static>,
+    trace: RouterTree<'static>,
+    options: RouterTree<'static>,
+    connect: RouterTree<'static>,
+    patch: RouterTree<'static>,
+    head: RouterTree<'static>,
 }
 
 impl Router<(), ()> {
@@ -35,15 +35,15 @@ impl Router<(), ()> {
     > {
         Router {
             middleware_factory: Arc::new(MiddlewareFactory::new()),
-            get: HandlerSelect::new(),
-            put: HandlerSelect::new(),
-            delete: HandlerSelect::new(),
-            post: HandlerSelect::new(),
-            trace: HandlerSelect::new(),
-            options: HandlerSelect::new(),
-            connect: HandlerSelect::new(),
-            patch: HandlerSelect::new(),
-            head: HandlerSelect::new(),
+            get: RouterTree::new(),
+            put: RouterTree::new(),
+            delete: RouterTree::new(),
+            post: RouterTree::new(),
+            trace: RouterTree::new(),
+            options: RouterTree::new(),
+            connect: RouterTree::new(),
+            patch: RouterTree::new(),
+            head: RouterTree::new(),
         }
     }
 }
