@@ -111,3 +111,9 @@ impl<T> From<http::Request<T>> for Request<T> {
         Request(value)
     }
 }
+
+impl From<Request<String>> for InternalResult<Request<String>> {
+    fn from(val: Request<String>) -> Self {
+        Ok(val)
+    }
+}

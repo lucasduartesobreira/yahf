@@ -9,12 +9,6 @@ use crate::{
     result::{InternalResult, Result},
 };
 
-impl From<Request<String>> for InternalResult<Request<String>> {
-    fn from(val: Request<String>) -> Self {
-        Ok(val)
-    }
-}
-
 impl From<Response<String>> for InternalResult<Response<String>> {
     fn from(val: Response<String>) -> Self {
         Ok(val)
