@@ -3,12 +3,12 @@ use std::sync::Arc;
 use futures::Future;
 
 use crate::{
-    handle_selector::RouterTree,
     handler::{encapsulate_runner, RefHandler, Runner},
     middleware::{AfterMiddleware, MiddlewareFactory, PreMiddleware},
     request::{Method, Request},
     response::Response,
     result::InternalResult,
+    tree::RouterTree,
 };
 
 pub struct Router<PreM, AfterM> {
