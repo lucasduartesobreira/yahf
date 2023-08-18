@@ -43,3 +43,19 @@ impl From<Error> for Response<String> {
             .into()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_body_and_code() {
+        let error = Error::new("Some error".into(), 400);
+
+        assert!(error
+            .body()
+            .starts_with("Some error"));
+
+        assert!(error.code() == &400);
+    }
+}
