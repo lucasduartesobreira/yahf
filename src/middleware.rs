@@ -9,12 +9,6 @@ use crate::{
     result::{InternalResult, Result},
 };
 
-impl From<Response<String>> for InternalResult<Response<String>> {
-    fn from(val: Response<String>) -> Self {
-        Ok(val)
-    }
-}
-
 pub trait PreMiddleware: Send + Sync + Copy {
     type FutCallResponse;
     fn call(&self, error: InternalResult<Request<String>>) -> Self::FutCallResponse;

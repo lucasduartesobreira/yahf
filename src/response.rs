@@ -58,3 +58,9 @@ impl<T> Response<T> {
         self.0
     }
 }
+
+impl From<Response<String>> for InternalResult<Response<String>> {
+    fn from(val: Response<String>) -> Self {
+        Ok(val)
+    }
+}
