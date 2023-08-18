@@ -244,3 +244,158 @@ impl<'a> Node<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::handler::encapsulate_runner;
+
+    use super::RouterTree;
+
+    async fn handler_example() -> String {
+        "Example".into()
+    }
+
+    #[test]
+    fn test_add_normal_route() {
+        let mut tree = RouterTree::new();
+        tree.insert(
+            "/",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        assert!(tree.get("/").is_some())
+    }
+
+    #[test]
+    fn test_add_wildcard_route() {
+        let mut tree = RouterTree::new();
+        tree.insert(
+            "/something/{wildcard}/something",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        assert!(tree
+            .get("/something/{wildcard}/something")
+            .is_some());
+    }
+
+    #[test]
+    fn test_mixed_router() {
+        let mut tree = RouterTree::new();
+
+        tree.insert(
+            "/",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        tree.insert(
+            "/something/{wildcard}/something",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        tree.insert(
+            "/something/newsomething/newsomething",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        assert!(tree
+            .get("/something/{wildcard}/something")
+            .is_some());
+        assert!(tree.get("/").is_some());
+        assert!(tree
+            .get("/something/newsomething/newsomething")
+            .is_some());
+    }
+
+    #[test]
+    fn test_get_on_wrong_path() {
+        let mut tree = RouterTree::new();
+
+        tree.insert(
+            "/",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        tree.insert(
+            "/something/{wildcard}/something",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        tree.insert(
+            "/something/newsomething/newsomething",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        assert!(tree
+            .get("/{wildcard}/something")
+            .is_none());
+        assert!(tree.get("/nothing").is_none());
+        assert!(tree
+            .get("/something/newsomething/")
+            .is_none());
+    }
+
+    #[test]
+    fn test_extend_another_router_tree() {
+        let mut tree = RouterTree::new();
+
+        tree.insert(
+            "/",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        let mut another_tree = RouterTree::new();
+
+        another_tree.insert(
+            "/something",
+            Box::new(encapsulate_runner(
+                handler_example,
+                &(),
+                &String::with_capacity(0),
+            )),
+        );
+
+        tree.extend(another_tree);
+
+        assert!(tree.get("/").is_some());
+        assert!(tree
+            .get("/something")
+            .is_some());
+    }
+}
