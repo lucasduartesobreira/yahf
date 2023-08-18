@@ -1,15 +1,6 @@
 use serde::Serialize;
 
-use crate::{
-    handler::{InternalResult, StandardBodyType},
-    response::Response,
-};
-
-pub trait BodySerializer {
-    type Item;
-
-    fn serialize(content: Self::Item) -> InternalResult<StandardBodyType>;
-}
+use crate::{handler::InternalResult, response::Response, serializer::BodySerializer};
 
 pub trait RunnerOutput<Serializer> {
     fn try_into(self) -> InternalResult<Response<String>>;

@@ -1,6 +1,7 @@
 use serde::de::DeserializeOwned;
 
 use crate::{
+    deserializer::BodyDeserializer,
     handler::{InternalResult, StandardBodyType},
     request::Request,
 };
@@ -50,12 +51,4 @@ where
     {
         Ok(RInput::try_into(input).into())
     }
-}
-
-pub trait BodyDeserializer {
-    type Item: DeserializeOwned;
-
-    fn deserialize(content: &StandardBodyType) -> InternalResult<Self::Item>
-    where
-        Self: std::marker::Sized;
 }

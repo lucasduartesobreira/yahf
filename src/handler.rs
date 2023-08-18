@@ -4,11 +4,8 @@ use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    error::Error,
-    request::Request,
-    response::Response,
-    runner_input::{BodyDeserializer, RunnerInput},
-    runner_output::{BodySerializer, RunnerOutput},
+    deserializer::BodyDeserializer, error::Error, request::Request, response::Response,
+    runner_input::RunnerInput, runner_output::RunnerOutput, serializer::BodySerializer,
 };
 
 pub(crate) type StandardBodyType = String;
@@ -86,50 +83,6 @@ impl<T> Json<T> {
 impl<T> Default for Json<T> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl<T> BodyDeserializer for Json<T>
-where
-    T: DeserializeOwned,
-{
-    type Item = T;
-
-    fn deserialize(content: &StandardBodyType) -> InternalResult<Self::Item>
-    where
-        Self: std::marker::Sized,
-    {
-        serde_json::from_str(content).map_err(|err| Error::new(err.to_string(), 422))
-    }
-}
-
-impl<T> BodySerializer for Json<T>
-where
-    T: Serialize,
-{
-    type Item = T;
-
-    fn serialize(content: Self::Item) -> InternalResult<String> {
-        serde_json::to_string(&content).map_err(|err| Error::new(err.to_string(), 422))
-    }
-}
-
-impl BodyDeserializer for String {
-    type Item = String;
-
-    fn deserialize(_content: &StandardBodyType) -> InternalResult<Self::Item>
-    where
-        Self: std::marker::Sized,
-    {
-        Ok(_content.to_owned())
-    }
-}
-
-impl BodySerializer for String {
-    type Item = String;
-
-    fn serialize(content: Self::Item) -> InternalResult<StandardBodyType> {
-        Ok(content.to_owned())
     }
 }
 
