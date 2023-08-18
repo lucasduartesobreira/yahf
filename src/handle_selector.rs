@@ -3,10 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use futures::Future;
 
 use crate::{
-    handler::{encapsulate_runner, BoxedHandler, InternalResult, RefHandler},
+    handler::{encapsulate_runner, BoxedHandler, RefHandler},
     middleware::{AfterMiddleware, MiddlewareFactory, PreMiddleware},
     request::Request,
     response::Response,
+    result::InternalResult,
 };
 
 #[derive(Default)]

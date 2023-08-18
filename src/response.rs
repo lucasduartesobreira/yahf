@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::handler::InternalResult;
+use crate::result::InternalResult;
 
 pub type HttpResponse<T> = http::Response<T>;
 type HttpResponseBuilder = http::response::Builder;

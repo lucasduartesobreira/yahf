@@ -8,10 +8,11 @@ use std::{
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    handler::{InternalResult, Runner},
+    handler::Runner,
     middleware::{AfterMiddleware, PreMiddleware},
     request::{self, Request},
     response::Response,
+    result::InternalResult,
     router::Router,
 };
 
@@ -284,10 +285,10 @@ mod test {
 
     use crate::{
         error::Error,
-        handler::InternalResult,
         middleware::{AfterMiddleware, PreMiddleware},
         request::{Method, Request},
         response::Response,
+        result::InternalResult,
         server::Server,
     };
 

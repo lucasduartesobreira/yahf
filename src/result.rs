@@ -1,6 +1,8 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::handler::InternalResult;
+use crate::error::Error;
+
+pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
 
 pub struct Result<T>(InternalResult<T>);
 

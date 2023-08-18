@@ -4,10 +4,11 @@ use futures::Future;
 
 use crate::{
     handle_selector::HandlerSelect,
-    handler::{encapsulate_runner, InternalResult, RefHandler, Runner},
+    handler::{encapsulate_runner, RefHandler, Runner},
     middleware::{AfterMiddleware, MiddlewareFactory, PreMiddleware},
     request::{Method, Request},
     response::Response,
+    result::InternalResult,
 };
 
 pub struct Router<PreM, AfterM> {
@@ -348,9 +349,10 @@ mod test {
 
     mod utils {
         use crate::{
-            handler::{InternalResult, RefHandler},
+            handler::RefHandler,
             request::{Method, Request},
             response::Response,
+            result::InternalResult,
         };
 
         pub fn create_request(body: String, method: Method) -> Request<String> {

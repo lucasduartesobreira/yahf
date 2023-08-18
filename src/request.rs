@@ -1,6 +1,6 @@
 use std::ops::{Deref, DerefMut};
 
-use crate::handler::InternalResult;
+use crate::result::InternalResult;
 
 pub type Method = http::Method;
 pub type Uri = http::Uri;

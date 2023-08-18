@@ -1,9 +1,8 @@
 use serde::de::DeserializeOwned;
 
 use crate::{
-    deserializer::BodyDeserializer,
-    handler::{InternalResult, StandardBodyType},
-    request::Request,
+    deserializer::BodyDeserializer, handler::StandardBodyType, request::Request,
+    result::InternalResult,
 };
 
 /// Describes a type that can be extracted using a BodyExtractors

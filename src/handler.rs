@@ -4,7 +4,7 @@ use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-    deserializer::BodyDeserializer, error::Error, request::Request, response::Response,
+    deserializer::BodyDeserializer, request::Request, response::Response, result::InternalResult,
     runner_input::RunnerInput, runner_output::RunnerOutput, serializer::BodySerializer,
 };
 
@@ -13,8 +13,6 @@ pub type GenericRequest = Request<StandardBodyType>;
 pub type GenericResponse = Response<StandardBodyType>;
 pub type BoxedHandler = Box<dyn BoxedRunner>;
 pub type RefHandler<'a> = &'a (dyn BoxedRunner);
-
-pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
 
 pub trait Runner<Input, Output>: Clone + Send + Sync {
     fn call_runner(

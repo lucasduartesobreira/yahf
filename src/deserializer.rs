@@ -2,7 +2,8 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     error::Error,
-    handler::{InternalResult, Json, StandardBodyType},
+    handler::{Json, StandardBodyType},
+    result::InternalResult,
 };
 
 pub trait BodyDeserializer {

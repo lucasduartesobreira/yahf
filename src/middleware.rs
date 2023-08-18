@@ -3,10 +3,10 @@ use std::sync::Arc;
 use futures::Future;
 
 use crate::{
-    handler::{InternalResult, Runner},
+    handler::Runner,
     request::Request,
     response::Response,
-    result::Result,
+    result::{InternalResult, Result},
 };
 
 impl From<Request<String>> for InternalResult<Request<String>> {
