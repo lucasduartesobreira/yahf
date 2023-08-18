@@ -49,3 +49,18 @@ impl<T> DerefMut for Result<T> {
         self.as_mut()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_into_inner() {
+        let result = Result(Ok("Str"));
+
+        assert!(result
+            .into_inner()
+            .unwrap()
+            .starts_with("Str"));
+    }
+}
