@@ -297,9 +297,9 @@ where
 #[cfg(test)]
 mod test {
     mod runners {
-        use crate::handler::Result;
         use crate::request::Request;
         use crate::response::Response;
+        use crate::result::Result;
 
         pub async fn runner_void_string() -> String {
             "1".into()
@@ -571,9 +571,9 @@ mod test {
 
     mod middlewares {
         use crate::error::Error;
-        use crate::handler::Result;
         use crate::request::Request;
         use crate::response::Response;
+        use crate::result::Result;
 
         pub async fn pre_transform(req: Result<Request<String>>) -> Result<Request<String>> {
             req.into_inner()

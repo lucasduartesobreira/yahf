@@ -38,7 +38,7 @@ where
     }
 }
 
-impl<BodyType, Extractor, RInput> RunnerInput<Extractor> for crate::handler::Result<RInput>
+impl<BodyType, Extractor, RInput> RunnerInput<Extractor> for crate::result::Result<RInput>
 where
     Extractor: BodyDeserializer<Item = BodyType>,
     BodyType: DeserializeOwned,

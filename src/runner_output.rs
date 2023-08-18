@@ -36,7 +36,7 @@ where
 }
 
 impl<BodyType, Serializer, BasicRunnerOutput> RunnerOutput<Serializer>
-    for crate::handler::Result<BasicRunnerOutput>
+    for crate::result::Result<BasicRunnerOutput>
 where
     Serializer: BodySerializer<Item = BodyType>,
     BodyType: Serialize,

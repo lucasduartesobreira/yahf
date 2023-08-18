@@ -485,7 +485,7 @@ mod test {
         test_pre_error,
         Server::new()
             .pre(|_| async {
-                crate::handler::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
             })
             .get(
                 "/",
@@ -508,10 +508,10 @@ mod test {
         test_pre_error_handled,
         Server::new()
             .pre(|_| async {
-                crate::handler::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
             })
-            .pre(|req: crate::handler::Result<Request<String>>| async {
-                crate::handler::Result::from(req.into_inner().map_or_else(
+            .pre(|req: crate::result::Result<Request<String>>| async {
+                crate::result::Result::from(req.into_inner().map_or_else(
                     |_| {
                         Ok(crate::request::Request::new(String::from(
                             "PreMiddleware fixed error",
@@ -541,7 +541,7 @@ mod test {
         test_after_error,
         Server::new()
             .after(|_| async {
-                crate::handler::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
             })
             .get(
                 "/",
@@ -564,10 +564,10 @@ mod test {
         test_after_error_handled,
         Server::new()
             .after(|_| async {
-                crate::handler::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
             })
-            .after(|res: crate::handler::Result<Response<String>>| async {
-                crate::handler::Result::from(res.into_inner().map_or_else(
+            .after(|res: crate::result::Result<Response<String>>| async {
+                crate::result::Result::from(res.into_inner().map_or_else(
                     |_| {
                         Ok(crate::response::Response::new(
                             "AfterMiddleware Handled Error".to_owned(),

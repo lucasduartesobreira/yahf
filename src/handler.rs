@@ -1,8 +1,4 @@
-use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-};
+use std::{marker::PhantomData, pin::Pin};
 
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
@@ -22,52 +18,6 @@ pub type BoxedHandler = Box<dyn BoxedRunner>;
 pub type RefHandler<'a> = &'a (dyn BoxedRunner);
 
 pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
-
-pub struct Result<T>(InternalResult<T>);
-
-impl<T> Result<T> {
-    pub fn into_inner(self) -> InternalResult<T> {
-        self.0
-    }
-}
-
-impl<T> From<InternalResult<T>> for Result<T> {
-    fn from(value: InternalResult<T>) -> Self {
-        Result(value)
-    }
-}
-
-impl<T> From<Result<T>> for InternalResult<T> {
-    fn from(value: Result<T>) -> Self {
-        value.into_inner()
-    }
-}
-
-impl<T> AsRef<InternalResult<T>> for Result<T> {
-    fn as_ref(&self) -> &InternalResult<T> {
-        &self.0
-    }
-}
-
-impl<T> AsMut<InternalResult<T>> for Result<T> {
-    fn as_mut(&mut self) -> &mut InternalResult<T> {
-        &mut self.0
-    }
-}
-
-impl<T> Deref for Result<T> {
-    type Target = InternalResult<T>;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
-    }
-}
-
-impl<T> DerefMut for Result<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_mut()
-    }
-}
 
 pub trait Runner<Input, Output>: Clone + Send + Sync {
     fn call_runner(
@@ -277,8 +227,9 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use crate::handler::Json;
+    use crate::result::Result;
 
-    use super::{encapsulate_runner, Request, Response, Result};
+    use super::{encapsulate_runner, Request, Response};
 
     #[derive(Deserialize, Serialize)]
     struct SomeBodyType {

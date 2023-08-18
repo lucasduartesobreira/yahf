@@ -6,6 +6,7 @@ pub mod handler;
 pub mod middleware;
 pub mod request;
 pub mod response;
+pub mod result;
 pub mod router;
 pub mod runner_input;
 pub mod runner_output;
