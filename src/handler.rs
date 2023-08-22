@@ -14,6 +14,10 @@ pub type GenericResponse = Response<StandardBodyType>;
 pub type BoxedHandler = Box<dyn BoxedRunner>;
 pub type RefHandler<'a> = &'a (dyn BoxedRunner);
 
+/// An trait to mark functions handler
+///
+/// To accept new types of handler just impl this trait.
+/// All implementations from this crate are using the signature `(Type, BodyDeserializer)` for both generic parameters
 pub trait Runner<Input, Output>: Clone + Send + Sync {
     fn call_runner(
         &'_ self,
