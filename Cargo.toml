@@ -14,11 +14,16 @@ keywords = ["http", "framework"]
 [dependencies]
 futures = "0.3.26"
 http = "0.2.9"
-hyper = { version = "0.14.27", features = ["full"]}
+hyper = { version = "0.14.27", features = ["server", "tcp", "stream"] }
+hyper-rustls = "0.24.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tls-listener = { version = "0.5.1", features = ["hyper", "hyper-h1", "hyper-h2", "rustls", "native-tls", "openssl"] }
-tokio = { version = "1.29.1", features = ["full"] }
+tls-listener = { version = "0.5.1", features = ["hyper-h1", "hyper-h2", "rustls"] }
+tokio = { version = "1.29.1", features = ["tokio-macros", "macros", "rt-multi-thread"] }
+tokio-rustls = "0.24.1"
 
 [profile.release]
 debug = true
+
+[dev-dependencies]
+hyper = { version = "0.14.27", features = ["client"] }
