@@ -3,10 +3,11 @@ use std::{collections::HashMap, sync::Arc};
 use futures::Future;
 
 use crate::{
-    handler::{encapsulate_runner, BoxedHandler, InternalResult, RefHandler},
+    handler::{encapsulate_runner, BoxedHandler, RefHandler},
     middleware::{AfterMiddleware, MiddlewareFactory, PreMiddleware},
     request::Request,
     response::Response,
+    result::InternalResult,
 };
 
 #[derive(Default)]
@@ -17,7 +18,7 @@ struct Node<'a> {
 }
 
 #[derive(Default)]
-pub struct HandlerSelect<'a> {
+pub struct RouterTree<'a> {
     root: Node<'a>,
 }
 
@@ -25,7 +26,7 @@ fn is_parameter_declaration(value: &str) -> bool {
     value.starts_with('{') && value.ends_with('}')
 }
 
-impl<'a> HandlerSelect<'a> {
+impl<'a> RouterTree<'a> {
     pub fn new() -> Self {
         Self {
             root: Node::default(),
@@ -90,7 +91,7 @@ impl<'a> HandlerSelect<'a> {
         };
     }
 
-    pub fn extend(&mut self, another_handler: HandlerSelect<'a>) {
+    pub fn extend(&mut self, another_handler: RouterTree<'a>) {
         let root = another_handler.root;
 
         self.rec_extend(root, "".to_owned());

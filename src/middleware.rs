@@ -3,22 +3,11 @@ use std::sync::Arc;
 use futures::Future;
 
 use crate::{
-    handler::{InternalResult, Result, Runner},
+    handler::Runner,
     request::Request,
     response::Response,
+    result::{InternalResult, Result},
 };
-
-impl From<Request<String>> for InternalResult<Request<String>> {
-    fn from(val: Request<String>) -> Self {
-        Ok(val)
-    }
-}
-
-impl From<Response<String>> for InternalResult<Response<String>> {
-    fn from(val: Response<String>) -> Self {
-        Ok(val)
-    }
-}
 
 pub trait PreMiddleware: Send + Sync + Copy {
     type FutCallResponse;
@@ -184,11 +173,8 @@ mod test {
     use std::sync::Arc;
 
     use crate::{
-        error::Error,
-        handler::{Result, Runner},
-        middleware::MiddlewareFactory,
-        request::Request,
-        response::Response,
+        error::Error, handler::Runner, middleware::MiddlewareFactory, request::Request,
+        response::Response, result::Result,
     };
 
     async fn pre_middleware(_req: Result<Request<String>>) -> Result<Request<String>> {

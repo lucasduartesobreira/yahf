@@ -1,25 +1,33 @@
+use futures::StreamExt;
 use std::{
     convert::Infallible,
+    future::ready,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    handler::{InternalResult, Runner},
+    handler::Runner,
     middleware::{AfterMiddleware, PreMiddleware},
     request::{self, Request},
     response::Response,
+    result::InternalResult,
     router::Router,
 };
 
 use futures::Future;
 use http::StatusCode;
 use hyper::{
-    server::conn::AddrStream,
+    server::{
+        accept,
+        conn::{AddrIncoming, AddrStream},
+    },
     service::{make_service_fn, service_fn},
 };
 
 use request::Method;
+use tls_listener::{AsyncTls, TlsListener};
 
 pub struct Server<PreM, AfterM> {
     router: Router<PreM, AfterM>,
@@ -191,6 +199,36 @@ where
         server.await?;
         Ok(())
     }
+
+    pub async fn listen_tls<T: AsyncTls<C> + AsyncTls<AddrStream>, C: AsyncRead + AsyncWrite>(
+        self,
+        addr: std::net::SocketAddr,
+        tls: T,
+    ) -> Result<(), hyper::Error>
+    where
+        <T as AsyncTls<AddrStream>>::Error: Send + Sync + 'static,
+        <T as AsyncTls<AddrStream>>::Stream: Send + Unpin + AsyncWrite + AsyncRead + 'static,
+    {
+        let server = Arc::new(self);
+        let make_svc = make_service_fn(move |_| {
+            let server = server.clone();
+            let service = service_fn(move |req| handle_req(server.clone(), req));
+            async move { Ok::<_, Infallible>(service) }
+        });
+
+        let listener = TlsListener::new(tls, AddrIncoming::bind(&addr)?).filter(|conn| {
+            if let Err(err) = conn {
+                eprintln!("Error: {:?}", err);
+                ready(false)
+            } else {
+                ready(true)
+            }
+        });
+
+        let server = hyper::Server::builder(accept::from_stream(listener)).serve(make_svc);
+        server.await?;
+        Ok(())
+    }
 }
 
 async fn handle_req<PreM, FutP, ResultP, AfterM, FutA, ResultA>(
@@ -226,7 +264,7 @@ where
     let req_new = hyper::Request::from_parts(parts, str);
 
     let (parts, body) = handler
-        .call(Ok(Request::from_inner(req_new)))
+        .call(Ok(Request::from(req_new)))
         .await
         .map_or_else(|err| err.into(), |res| res)
         .into_inner()
@@ -247,10 +285,10 @@ mod test {
 
     use crate::{
         error::Error,
-        handler::InternalResult,
         middleware::{AfterMiddleware, PreMiddleware},
         request::{Method, Request},
         response::Response,
+        result::InternalResult,
         server::Server,
     };
 
@@ -448,7 +486,7 @@ mod test {
         test_pre_error,
         Server::new()
             .pre(|_| async {
-                crate::handler::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
             })
             .get(
                 "/",
@@ -471,10 +509,10 @@ mod test {
         test_pre_error_handled,
         Server::new()
             .pre(|_| async {
-                crate::handler::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("PreMiddleware error".into(), 422)))
             })
-            .pre(|req: crate::handler::Result<Request<String>>| async {
-                crate::handler::Result::from(req.into_inner().map_or_else(
+            .pre(|req: crate::result::Result<Request<String>>| async {
+                crate::result::Result::from(req.into_inner().map_or_else(
                     |_| {
                         Ok(crate::request::Request::new(String::from(
                             "PreMiddleware fixed error",
@@ -504,7 +542,7 @@ mod test {
         test_after_error,
         Server::new()
             .after(|_| async {
-                crate::handler::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
             })
             .get(
                 "/",
@@ -527,10 +565,10 @@ mod test {
         test_after_error_handled,
         Server::new()
             .after(|_| async {
-                crate::handler::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
+                crate::result::Result::from(Err(Error::new("AfterMiddleware error".into(), 422)))
             })
-            .after(|res: crate::handler::Result<Response<String>>| async {
-                crate::handler::Result::from(res.into_inner().map_or_else(
+            .after(|res: crate::result::Result<Response<String>>| async {
+                crate::result::Result::from(res.into_inner().map_or_else(
                     |_| {
                         Ok(crate::response::Response::new(
                             "AfterMiddleware Handled Error".to_owned(),

@@ -1,164 +1,18 @@
-use std::{
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-};
+use std::{marker::PhantomData, pin::Pin};
 
 use futures::Future;
 use serde::{de::DeserializeOwned, Serialize};
 
-use crate::{error::Error, request::Request, response::Response};
+use crate::{
+    deserializer::BodyDeserializer, request::Request, response::Response, result::InternalResult,
+    runner_input::RunnerInput, runner_output::RunnerOutput, serializer::BodySerializer,
+};
 
-type StandardBodyType = String;
+pub(crate) type StandardBodyType = String;
 pub type GenericRequest = Request<StandardBodyType>;
 pub type GenericResponse = Response<StandardBodyType>;
 pub type BoxedHandler = Box<dyn BoxedRunner>;
 pub type RefHandler<'a> = &'a (dyn BoxedRunner);
-
-pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
-
-pub struct Result<T>(InternalResult<T>);
-
-impl<T> Result<T> {
-    pub fn into_inner(self) -> InternalResult<T> {
-        self.0
-    }
-}
-
-impl<T> From<InternalResult<T>> for Result<T> {
-    fn from(value: InternalResult<T>) -> Self {
-        Result(value)
-    }
-}
-
-impl<T> From<Result<T>> for InternalResult<T> {
-    fn from(value: Result<T>) -> Self {
-        value.into_inner()
-    }
-}
-
-impl<T> AsRef<InternalResult<T>> for Result<T> {
-    fn as_ref(&self) -> &InternalResult<T> {
-        &self.0
-    }
-}
-
-impl<T> AsMut<InternalResult<T>> for Result<T> {
-    fn as_mut(&mut self) -> &mut InternalResult<T> {
-        &mut self.0
-    }
-}
-
-impl<T> Deref for Result<T> {
-    type Target = InternalResult<T>;
-
-    fn deref(&self) -> &Self::Target {
-        self.as_ref()
-    }
-}
-
-impl<T> DerefMut for Result<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_mut()
-    }
-}
-
-pub trait BodyDeserializer {
-    type Item: DeserializeOwned;
-
-    fn deserialize(content: &StandardBodyType) -> InternalResult<Self::Item>
-    where
-        Self: std::marker::Sized;
-}
-
-pub trait BodySerializer {
-    type Item;
-
-    fn serialize(content: Self::Item) -> InternalResult<StandardBodyType>;
-}
-
-/// Describes a type that can be extracted using a BodyExtractors
-pub trait RunnerInput<Extractor> {
-    fn try_into(input: InternalResult<Request<StandardBodyType>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized;
-}
-
-impl<BodyType, Extractor> RunnerInput<Extractor> for BodyType
-where
-    Extractor: BodyDeserializer<Item = BodyType>,
-    BodyType: DeserializeOwned,
-{
-    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        input.and_then(|input| Extractor::deserialize(input.body()))
-    }
-}
-
-impl<BodyType, Extractor> RunnerInput<Extractor> for Request<BodyType>
-where
-    Extractor: BodyDeserializer<Item = BodyType>,
-    BodyType: DeserializeOwned,
-{
-    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        input.and_then(|input| input.and_then(|body| Extractor::deserialize(&body)))
-    }
-}
-
-impl<BodyType, Extractor, RInput> RunnerInput<Extractor> for Result<RInput>
-where
-    Extractor: BodyDeserializer<Item = BodyType>,
-    BodyType: DeserializeOwned,
-    RInput: RunnerInput<Extractor>,
-{
-    fn try_into(input: InternalResult<Request<String>>) -> InternalResult<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        Ok(RInput::try_into(input).into())
-    }
-}
-
-pub trait RunnerOutput<Serializer> {
-    fn try_into(self) -> InternalResult<Response<String>>;
-}
-
-impl<BodyType, Serializer> RunnerOutput<Serializer> for Response<BodyType>
-where
-    Serializer: BodySerializer<Item = BodyType>,
-    BodyType: Serialize,
-{
-    fn try_into(self) -> InternalResult<Response<String>> {
-        self.and_then(|body| Serializer::serialize(body))
-    }
-}
-
-impl<BodyType, Serializer> RunnerOutput<Serializer> for BodyType
-where
-    Serializer: BodySerializer<Item = BodyType>,
-    BodyType: Serialize,
-{
-    fn try_into(self) -> InternalResult<Response<String>> {
-        Serializer::serialize(self).map(Response::new)
-    }
-}
-
-impl<BodyType, Serializer, BasicRunnerOutput> RunnerOutput<Serializer> for Result<BasicRunnerOutput>
-where
-    Serializer: BodySerializer<Item = BodyType>,
-    BodyType: Serialize,
-    BasicRunnerOutput: RunnerOutput<Serializer>,
-{
-    fn try_into(self) -> InternalResult<Response<String>> {
-        self.0
-            .and_then(|resp| BasicRunnerOutput::try_into(resp))
-    }
-}
 
 pub trait Runner<Input, Output>: Clone + Send + Sync {
     fn call_runner(
@@ -227,50 +81,6 @@ impl<T> Json<T> {
 impl<T> Default for Json<T> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl<T> BodyDeserializer for Json<T>
-where
-    T: DeserializeOwned,
-{
-    type Item = T;
-
-    fn deserialize(content: &StandardBodyType) -> InternalResult<Self::Item>
-    where
-        Self: std::marker::Sized,
-    {
-        serde_json::from_str(content).map_err(|err| Error::new(err.to_string(), 422))
-    }
-}
-
-impl<T> BodySerializer for Json<T>
-where
-    T: Serialize,
-{
-    type Item = T;
-
-    fn serialize(content: Self::Item) -> InternalResult<String> {
-        serde_json::to_string(&content).map_err(|err| Error::new(err.to_string(), 422))
-    }
-}
-
-impl BodyDeserializer for String {
-    type Item = String;
-
-    fn deserialize(_content: &StandardBodyType) -> InternalResult<Self::Item>
-    where
-        Self: std::marker::Sized,
-    {
-        Ok(_content.to_owned())
-    }
-}
-
-impl BodySerializer for String {
-    type Item = String;
-
-    fn serialize(content: Self::Item) -> InternalResult<StandardBodyType> {
-        Ok(content.to_owned())
     }
 }
 
@@ -368,8 +178,9 @@ mod tests {
     use serde::{Deserialize, Serialize};
 
     use crate::handler::Json;
+    use crate::result::Result;
 
-    use super::{encapsulate_runner, Request, Response, Result};
+    use super::{encapsulate_runner, Request, Response};
 
     #[derive(Deserialize, Serialize)]
     struct SomeBodyType {

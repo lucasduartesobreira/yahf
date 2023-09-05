@@ -6,8 +6,8 @@ use std::time::UNIX_EPOCH;
 use serde::Deserialize;
 use serde::Serialize;
 use yahf::handler::Json;
-use yahf::handler::Result;
 use yahf::request::Request;
+use yahf::result::Result;
 
 use yahf::response::Response;
 use yahf::router::Router;
