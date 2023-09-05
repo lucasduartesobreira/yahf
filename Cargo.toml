@@ -27,3 +27,4 @@ debug = true
 
 [dev-dependencies]
 hyper = { version = "0.14.27", features = ["client"] }
+rcgen = "0.11.1"
