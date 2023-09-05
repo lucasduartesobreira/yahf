@@ -1,11 +1,12 @@
-use futures::StreamExt;
+use hyper_rustls::TlsAcceptor;
+
 use std::{
     convert::Infallible,
-    future::ready,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
-use tokio::io::{AsyncRead, AsyncWrite};
+
+use tokio_rustls::rustls::ServerConfig;
 
 use crate::{
     handler::Runner,
@@ -19,15 +20,11 @@ use crate::{
 use futures::Future;
 use http::StatusCode;
 use hyper::{
-    server::{
-        accept,
-        conn::{AddrIncoming, AddrStream},
-    },
+    server::conn::{AddrIncoming, AddrStream},
     service::{make_service_fn, service_fn},
 };
 
 use request::Method;
-use tls_listener::{AsyncTls, TlsListener};
 
 pub struct Server<PreM, AfterM> {
     router: Router<PreM, AfterM>,
@@ -200,32 +197,25 @@ where
         Ok(())
     }
 
-    pub async fn listen_tls<T: AsyncTls<C> + AsyncTls<AddrStream>, C: AsyncRead + AsyncWrite>(
+    pub async fn listen_rustls(
         self,
+        config: ServerConfig,
         addr: std::net::SocketAddr,
-        tls: T,
-    ) -> Result<(), hyper::Error>
-    where
-        <T as AsyncTls<AddrStream>>::Error: Send + Sync + 'static,
-        <T as AsyncTls<AddrStream>>::Stream: Send + Unpin + AsyncWrite + AsyncRead + 'static,
-    {
+    ) -> Result<(), hyper::Error> {
         let server = Arc::new(self);
         let make_svc = make_service_fn(move |_| {
             let server = server.clone();
             let service = service_fn(move |req| handle_req(server.clone(), req));
             async move { Ok::<_, Infallible>(service) }
         });
+        let addr_inc = AddrIncoming::bind(&addr).unwrap();
 
-        let listener = TlsListener::new(tls, AddrIncoming::bind(&addr)?).filter(|conn| {
-            if let Err(err) = conn {
-                eprintln!("Error: {:?}", err);
-                ready(false)
-            } else {
-                ready(true)
-            }
-        });
+        let listener = TlsAcceptor::builder()
+            .with_tls_config(config)
+            .with_all_versions_alpn()
+            .with_incoming(addr_inc);
 
-        let server = hyper::Server::builder(accept::from_stream(listener)).serve(make_svc);
+        let server = hyper::Server::builder(listener).serve(make_svc);
         server.await?;
         Ok(())
     }
