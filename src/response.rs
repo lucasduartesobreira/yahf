@@ -2,8 +2,9 @@ use std::ops::{Deref, DerefMut};
 
 use crate::result::InternalResult;
 
-pub type HttpResponse<T> = http::Response<T>;
-type HttpResponseBuilder = http::response::Builder;
+pub use http::response::Builder as HttpResponseBuilder;
+use http::response::Parts;
+pub use http::Response as HttpResponse;
 
 #[derive(Debug)]
 pub struct Response<T>(HttpResponse<T>);
@@ -45,6 +46,14 @@ impl<T> Response<T> {
         Self(HttpResponse::new(value))
     }
 
+    /// Creates a new `Response` with the given head and body
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn from_parts(parts: Parts, body: T) -> Response<T> {
+        Response(HttpResponse::from_parts(parts, body))
+    }
+
     // TODO: Valuate if this will keep this fn or move to an from_parts style
     pub fn and_then<BodyType>(
         self,
@@ -56,6 +65,32 @@ impl<T> Response<T> {
 
     pub fn into_inner(self) -> HttpResponse<T> {
         self.0
+    }
+    /// Consumes the response, returning just the body.
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn into_body(self) -> T {
+        self.0.into_body()
+    }
+    /// Consumes the response returning the head and body parts.
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn into_parts(self) -> (Parts, T) {
+        self.0.into_parts()
+    }
+
+    /// Consumes the response returning a new response with body mapped to the
+    /// return type of the passed in function.
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn map<F, U>(self, f: F) -> Response<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        Response(self.0.map(f))
     }
 }
 

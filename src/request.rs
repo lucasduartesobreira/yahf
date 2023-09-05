@@ -2,13 +2,13 @@ use std::ops::{Deref, DerefMut};
 
 use crate::result::InternalResult;
 
-pub type Method = http::Method;
-pub type Uri = http::Uri;
-pub type HttpRequest<T> = http::Request<T>;
-pub type HttpBuilder = http::request::Builder;
-pub type HttpHeaderName = http::HeaderName;
-pub type HttpHeaderValue = http::HeaderValue;
-pub type HttpHeaderMap<HeaderValue> = http::HeaderMap<HeaderValue>;
+pub use http::request::Builder as HttpBuilder;
+pub use http::request::Parts;
+pub use http::HeaderName;
+pub use http::HeaderValue;
+pub use http::Method;
+pub use http::Request as HttpRequest;
+pub use http::Uri;
 
 #[derive(Default)]
 pub struct Request<T>(HttpRequest<T>);
@@ -41,8 +41,16 @@ impl<T> Request<T> {
         Self(HttpRequest::new(value))
     }
 
+    /// Creates a new `Request` with the given components parts and body.
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn from_parts(parts: Parts, body: T) -> Request<T> {
+        Request(HttpRequest::from_parts(parts, body))
+    }
+
     // TODO: Valuate if this will keep this fn or move to an from_parts style
-    pub fn and_then<BodyType>(
+    pub(crate) fn and_then<BodyType>(
         self,
         callback: impl FnOnce(T) -> InternalResult<BodyType>,
     ) -> InternalResult<Request<BodyType>> {
@@ -52,6 +60,34 @@ impl<T> Request<T> {
 
     pub fn into_inner(self) -> HttpRequest<T> {
         self.0
+    }
+
+    /// Consumes the request, returning just the body.
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn into_body(self) -> T {
+        self.0.into_body()
+    }
+
+    /// Consumes the request returning the head and body parts.
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn into_parts(self) -> (Parts, T) {
+        self.0.into_parts()
+    }
+
+    /// Consumes the request returning a new request with body mapped to the
+    /// return type of the passed in function.
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn map<F, U>(self, f: F) -> Request<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        Request(self.0.map(f))
     }
 }
 
@@ -87,10 +123,10 @@ impl Builder {
 
     pub fn header<K, V>(self, key: K, value: V) -> Self
     where
-        HttpHeaderName: TryFrom<K>,
-        <HttpHeaderName as TryFrom<K>>::Error: Into<http::Error>,
-        HttpHeaderValue: TryFrom<V>,
-        <HttpHeaderValue as TryFrom<V>>::Error: Into<http::Error>,
+        HeaderName: TryFrom<K>,
+        <HeaderName as TryFrom<K>>::Error: Into<http::Error>,
+        HeaderValue: TryFrom<V>,
+        <HeaderValue as TryFrom<V>>::Error: Into<http::Error>,
     {
         Self {
             builder: self
