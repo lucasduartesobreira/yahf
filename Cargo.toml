@@ -1,7 +1,13 @@
 [package]
 name = "yahf"
-version = "0.2.0"
+version = "0.0.1"
 edition = "2021"
+license = "MIT"
+description = "Yet Another HTTP Framework focused on DX"
+repository = "https://github.com/lucasduartesobreira/yahf"
+readme = "README.md"
+categories = ["asynchronous", "network-programming", "web-programming::http-server"]
+keywords = ["http", "framework"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
