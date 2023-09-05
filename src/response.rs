@@ -46,6 +46,14 @@ impl<T> Response<T> {
         Self(HttpResponse::new(value))
     }
 
+    /// Creates a new `Response` with the given head and body
+    ///
+    /// Just a dummy to http::Request function
+    #[inline]
+    pub fn from_parts(parts: Parts, body: T) -> Response<T> {
+        Response(HttpResponse::from_parts(parts, body))
+    }
+
     // TODO: Valuate if this will keep this fn or move to an from_parts style
     pub fn and_then<BodyType>(
         self,
