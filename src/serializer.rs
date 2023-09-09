@@ -30,3 +30,11 @@ impl BodySerializer for String {
         Ok(content.to_owned())
     }
 }
+
+impl BodySerializer for () {
+    type Item = ();
+
+    fn serialize(_content: Self::Item) -> InternalResult<StandardBodyType> {
+        Ok(String::with_capacity(0))
+    }
+}
