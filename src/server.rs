@@ -119,6 +119,10 @@ where
     method_reroute!(head);
     method_reroute!(all);
 
+    /// Set a handler for some HTTP method and a path
+    ///
+    /// Path accept any str formatted as `/path/to/resource`. It's possible to add wildcard matcher
+    /// using `{resource}` format.
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
         mut self,
         method: Method,
@@ -140,6 +144,7 @@ where
         self
     }
 
+    /// Extend the `Server` with a `Router`
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         self,
         router: Router<OtherPreM, OtherAfterM>,
