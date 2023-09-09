@@ -1,3 +1,5 @@
+//! Async functions that are used to handle requests
+
 use std::{marker::PhantomData, pin::Pin};
 
 use futures::Future;
@@ -9,10 +11,10 @@ use crate::{
 };
 
 pub(crate) type StandardBodyType = String;
-pub type GenericRequest = Request<StandardBodyType>;
-pub type GenericResponse = Response<StandardBodyType>;
-pub type BoxedHandler = Box<dyn BoxedRunner>;
-pub type RefHandler<'a> = &'a (dyn BoxedRunner);
+pub(crate) type GenericRequest = Request<StandardBodyType>;
+pub(crate) type GenericResponse = Response<StandardBodyType>;
+pub(crate) type BoxedHandler = Box<dyn BoxedRunner>;
+pub(crate) type RefHandler<'a> = &'a (dyn BoxedRunner);
 
 /// An trait to mark functions handler
 ///
