@@ -68,9 +68,8 @@
 //! async fn bar_delete() {}
 //!
 //! # async {
-//! #   yahf::server::Server::new().serve(router).listen(([127, 0, 0, 1],
-//! # 8000).into()).await.unwrap()
-//! # }
+//! #   yahf::server::Server::new().router(router);
+//! # };
 //! ```
 //!
 //! [`Server`](server::Server) shares these features from [`Router`](router::Router)
@@ -86,24 +85,36 @@
 //! # use serde::Deserialize;
 //! # use yahf::result::Result;
 //! use yahf::request::Request;
-//! use yahf::response::Response
+//! use yahf::response::Response;
 //! # #[derive(Serialize, Deserialize)]
 //! # struct ResponseBody { second_value: u64 };
 //! # #[derive(Serialize, Deserialize)]
 //! # struct RequestBody { first_value: u64 }
 //!
-//! async fn handler1() -> ResponseBody {}
-//! async fn handler2() -> Response<ResponseBody> {}
-//! async fn handler3(req: RequestBody) -> ResponseBody {}
-//! async fn handler4(req: Request<RequestBody>) -> ResponseBody {}
-//! async fn handler5(req: RequestBody) -> Response<ResponseBody> {}
-//! async fn handler6(req: Request<RequestBody>) -> Response<ResponseBody> {}
-//! async fn handler7() -> Result<ResponseBody> {}
-//! async fn handler8() -> Result<Response<ResponseBody>> {}
-//! async fn handler9(req: Result<RequestBody>) -> Result<ResponseBody> {}
-//! async fn handler10(req: Result<Request<RequestBody>>) -> Result<ResponseBody> {}
-//! async fn handler11(req: Result<RequestBody>) -> Result<Response<ResponseBody>> {}
-//! async fn handler12(req: Result<Request<RequestBody>>) -> Result<Response<ResponseBody>> {}
+//! async fn handler1() -> ResponseBody  
+//! # {todo!()}
+//! async fn handler2() -> Response<ResponseBody>  
+//! # {todo!()}
+//! async fn handler3(req: RequestBody) -> ResponseBody  
+//! # {todo!()}
+//! async fn handler4(req: Request<RequestBody>) -> ResponseBody
+//! # {todo!()}
+//! async fn handler5(req: RequestBody) -> Response<ResponseBody>
+//! # {todo!()}
+//! async fn handler6(req: Request<RequestBody>) -> Response<ResponseBody>
+//! # {todo!()}
+//! async fn handler7() -> Result<ResponseBody>
+//! # {todo!()}
+//! async fn handler8() -> Result<Response<ResponseBody>>
+//! # {todo!()}
+//! async fn handler9(req: Result<RequestBody>) -> Result<ResponseBody>
+//! # {todo!()}
+//! async fn handler10(req: Result<Request<RequestBody>>) -> Result<ResponseBody>
+//! # {todo!()}
+//! async fn handler11(req: Result<RequestBody>) -> Result<Response<ResponseBody>>
+//! # {todo!()}
+//! async fn handler12(req: Result<Request<RequestBody>>) -> Result<Response<ResponseBody>>
+//! # {todo!()}
 //! ```
 //!
 //! All it takes to start accepting a new type as argument is to implement the trait [`RunnerInput`](runner_input::RunnerInput). Same to implement a new type of return, but implementing the trait [`RunnerOutput`](runner_output::RunnerOutput).
