@@ -11,7 +11,6 @@
 //! - [Routing](#routing)
 //! - [Handlers](#handlers)
 //! - [Extensability](#extensability)
-//! - - [Body Deserializer](##body-deserializer)
 //! - [Middleware](#middleware)
 //! - [Examples](#examples)
 //!
@@ -117,17 +116,25 @@
 //! # {todo!()}
 //! ```
 //!
-//! All it takes to start accepting a new type as argument is to implement the trait [`RunnerInput`](runner_input::RunnerInput). Same to implement a new type of return, but implementing the trait [`RunnerOutput`](runner_output::RunnerOutput).
-//!
-//! ### Responses
-//!
-//! A `handler` to define any  [`RunnerOutput`](runner_output::RunnerOutput)
+//! All these signatures comes from the implementations of [`RunnerInput`](runner_input::RunnerInput) and [`RunnerOutput`](runner_output::RunnerOutput).
 //!
 //! # Extensability
 //!
-//! ## Body Deserializer
+//! YAHF was designed to be extended using traits. There are five traits that control which
+//! handlers are accepted by controlling [`Serialization`](serializer::BodySerializer), [`Deserialization`](deserializer::BodyDeserializer), [`Function Arguments`](runner_input::RunnerInput),
+//! [`Function Response`](runner_output::RunnerOutput) and the [`function signature`](handler::Runner) itself. Therefore, any part of the Handler
+//! can be extended to satify a need.
+//!
+//! #### Deserialization/Serialization
+//!
+//! `Deserialization` and `Serialization` are applied only to the `Body` of a `Request`/`Response`.
+//! These two operations are handled respectively by [`BodyDeserializer`](serializer::BodySerializer),
+//! [`BodyDeserializer`](deserializer::BodyDeserializer). More details its docs.
+//!
+//! #### Function Arguments/Response
 //!
 //! # Middleware
+//!
 //!
 //! # Examples
 //!
