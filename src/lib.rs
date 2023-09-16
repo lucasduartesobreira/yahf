@@ -211,7 +211,10 @@
 //! ```
 //!
 //! More of this example [here](https://github.com/lucasduartesobreira/yahf/blob/main/examples/router_example/main.rs)
+//!
 //! # Examples
+//!
+//! The repo includes [illustrative examples](https://github.com/lucasduartesobreira/yahf/tree/main/examples) demonstrating the integration of all the components
 //!
 
 pub mod deserializer;
