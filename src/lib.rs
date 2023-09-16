@@ -75,7 +75,7 @@
 //!
 //! # Handlers
 //!
-//! On YAHF, a `handler` is a async function that is used to handle a `Route`. An acceptable
+//! On YAHF, a [`handler`](handler) is a async function that is used to handle a `Route`. An acceptable
 //! `handler` implements the trait [`Runner`](handler::Runner). By default, these signatures are
 //! supported:
 //!
