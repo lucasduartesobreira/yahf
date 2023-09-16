@@ -120,10 +120,11 @@
 //!
 //! # Extensability
 //!
-//! YAHF was designed to be extended using traits. There are five traits that control which
-//! handlers are accepted by controlling [`Serialization`](serializer::BodySerializer), [`Deserialization`](deserializer::BodyDeserializer), [`Function Arguments`](runner_input::RunnerInput),
-//! [`Function Response`](runner_output::RunnerOutput) and the [`function signature`](handler::Runner) itself. Therefore, any part of the Handler
-//! can be extended to satify a need.
+//! YAHF `handlers` are modular by design. A `handler` is decomposed into four modules: a body [`deserializer`](deserializer::BodyDeserializer),
+//! a body [`serializer`](serializer::BodySerializer), [`arguments`](runner_input::RunnerInput), and a [`response`](runner_output::RunnerOutput).
+//! These modules are glued together using the [`Runner`](handler::Runner) trait. Adding new
+//! functionality to the handlers is just a matter of implementing one of these traits. For more
+//! details, check the trait docs
 //!
 //! #### Deserialization/Serialization
 //!
