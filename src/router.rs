@@ -278,6 +278,8 @@ where
         }
     }
 
+    /// Append a [`AfterMiddleware`](crate::middleware::AfterMiddleware) on the
+    /// [`AfterMiddleware`](middleware::PreMiddleware)
     pub fn after<NewAfterM, NewFut, NewResultA>(
         self,
         middleware: NewAfterM,
