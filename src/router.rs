@@ -109,6 +109,7 @@ pub struct Router<PreM, AfterM> {
 }
 
 impl Router<(), ()> {
+    /// Create a new [Router]
     pub fn new() -> Router<
         impl PreMiddleware<
             FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
