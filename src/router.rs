@@ -174,6 +174,39 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
+    /// Extend a [Router] with another one and return the new [Router]
+    ///
+    /// A example:
+    ///
+    /// ```rust
+    ///# use yahf::result::Result;
+    ///# use serde::Deserialize;
+    ///# use serde::Serialize;
+    ///# use yahf::handler::Json;
+    /// #
+    /// # #[derive(Deserialize, Serialize)]
+    /// # struct Computation { value: u64 }
+    /// #
+    /// async fn logger(req: Result<Request<String>>) -> Result<Request<String>>
+    /// # { req }
+    /// #
+    /// async fn some_computation(req: Computation) -> Computation
+    /// # {req}
+    /// #
+    /// // Define `Router A` with a Logger `PreMiddleware`
+    /// let router_a = Router::new().pre(logger);
+    /// // Define `Router B` with a router to "/desired/path"
+    /// let router_b = Router::new().get("/desired/path", some_computation, &Json::default(), &Json::default());
+    ///
+    /// // All routes of the Router A plus all routes of B with logger applied to. This also
+    /// // concatenate the A's middlewares with B's middleware, so any new Route will have A's
+    /// // middleware -> B's middleware
+    /// let router_a_and_b = a.router(router_b);
+    /// ```
+    ///
+    /// By extending router A with router B, we're basically applying the middlewares of A to
+    /// routes of B, adding B routes to A and then concatenating A's middlewares with B's
+    /// middlewares
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         mut self,
         router: Router<OtherPreM, OtherAfterM>,
