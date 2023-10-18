@@ -16,8 +16,8 @@ use crate::{
 
 /// Helper to create Routes
 ///
-/// A Router is used to bind a [`handler`](handler::Runner) to a certain `path` and `method`, and
-/// leverage the applicability of the [`middlewares`](middleware) to these routes
+/// A Router is used to bind a [`handler`](crate::handler::Runner) to a certain `path` and `method`, and
+/// leverage the applicability of the [`middlewares`](crate::middleware) to these routes
 ///
 /// An example:
 /// ```rust
@@ -134,7 +134,8 @@ impl Router<(), ()> {
 }
 
 macro_rules! method_insert {
-    ($fn: ident, $method: expr) => {
+    ($fn: ident, $method: expr, $docs: literal) => {
+        #[doc=$docs]
         pub fn $fn<FnIn, FnOut, Deserializer, Serializer, R>(
             self,
             path: &'static str,
@@ -364,15 +365,15 @@ where
         self
     }
 
-    method_insert!(get, Method::GET);
-    method_insert!(put, Method::PUT);
-    method_insert!(delete, Method::DELETE);
-    method_insert!(post, Method::POST);
-    method_insert!(trace, Method::TRACE);
-    method_insert!(options, Method::OPTIONS);
-    method_insert!(connect, Method::CONNECT);
-    method_insert!(patch, Method::PATCH);
-    method_insert!(head, Method::HEAD);
+    method_insert!(get, Method::GET, "");
+    method_insert!(put, Method::PUT, "");
+    method_insert!(delete, Method::DELETE, "");
+    method_insert!(post, Method::POST, "");
+    method_insert!(trace, Method::TRACE, "");
+    method_insert!(options, Method::OPTIONS, "");
+    method_insert!(connect, Method::CONNECT, "");
+    method_insert!(patch, Method::PATCH, "");
+    method_insert!(head, Method::HEAD, "");
 
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
         self,
