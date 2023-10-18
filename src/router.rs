@@ -1,3 +1,6 @@
+//! Struct to help with binding handlers to paths and Middlewares
+//!
+//! Refeer to the [Router] for more information
 use std::sync::Arc;
 
 use futures::Future;
