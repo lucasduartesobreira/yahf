@@ -323,11 +323,11 @@ where
     /// [`Deserializer`](crate::deserializer::BodyDeserializer)
     ///
     /// ```rust
-    /// #async fn some_handler(req: String) -> String { req }
-    /// #type Computation = String;
-    /// #let serializer = String::with_capacity(0);
-    /// #let deserializer = String::with_capacity(0);
-    /// #let router = Router::new();
+    /// # async fn some_handler(req: String) -> String { req }
+    /// # type Computation = String;
+    /// # let serializer = String::with_capacity(0);
+    /// # let deserializer = String::with_capacity(0);
+    /// # let router = Router::new();
     /// router.method(Method::GET, "/desired/path", &deserializer, &serializer);
     /// ```
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
