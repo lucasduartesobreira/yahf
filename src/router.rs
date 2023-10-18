@@ -250,6 +250,8 @@ where
         self
     }
 
+    /// Append a [`PreMiddleware`](crate::middleware::PreMiddleware) on the
+    /// [`PreMiddleware`](crate::middleware::PreMiddleware) and return the [Router]
     pub fn pre<NewPreM, NewFut, NewResultP>(
         self,
         middleware: NewPreM,
