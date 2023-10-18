@@ -140,12 +140,13 @@ macro_rules! method_insert {
         /// [`Deserializer`](crate::deserializer::BodyDeserializer)
         ///
         /// ```rust
+        /// # use yahf::router::Router;
         /// # async fn some_handler(req: String) -> String { req }
         /// # type Computation = String;
         /// # let serializer = String::with_capacity(0);
         /// # let deserializer = String::with_capacity(0);
         /// # let router = Router::new();
-        #[doc = std::concat!( "router.", $method_name, "(\"/desired/path\", &deserializer, &serializer)")]
+        #[doc = std::concat!( "router.", $method_name, "(\"/desired/path\", some_handler, &deserializer, &serializer);")]
         /// ```
         pub fn $fn<FnIn, FnOut, Deserializer, Serializer, R>(
             self,
@@ -191,6 +192,8 @@ where
     /// A example:
     ///
     /// ```rust
+    /// # use yahf::request::Request;
+    /// # use yahf::router::Router;
     ///# use yahf::result::Result;
     ///# use serde::Deserialize;
     ///# use serde::Serialize;
@@ -213,7 +216,7 @@ where
     /// // All routes of the Router A plus all routes of B with logger applied to. This also
     /// // concatenate the A's middlewares with B's middleware, so any new Route will have A's
     /// // middleware -> B's middleware
-    /// let router_a_and_b = a.router(router_b);
+    /// let router_a_and_b = router_a.router(router_b);
     /// ```
     ///
     /// By extending router A with router B, we're basically applying the middlewares of A to
@@ -323,12 +326,14 @@ where
     /// [`Deserializer`](crate::deserializer::BodyDeserializer)
     ///
     /// ```rust
+    /// # use yahf::router::Router;
+    /// # use yahf::request::Method;
     /// # async fn some_handler(req: String) -> String { req }
     /// # type Computation = String;
     /// # let serializer = String::with_capacity(0);
     /// # let deserializer = String::with_capacity(0);
     /// # let router = Router::new();
-    /// router.method(Method::GET, "/desired/path", &deserializer, &serializer);
+    /// router.method(Method::GET, "/desired/path", some_handler, &deserializer, &serializer);
     /// ```
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
         mut self,
@@ -448,12 +453,13 @@ where
     /// [`Deserializer`](crate::deserializer::BodyDeserializer)
     ///
     /// ```rust
+    /// # use yahf::router::Router;
     /// # async fn some_handler(req: String) -> String { req }
     /// # type Computation = String;
     /// # let serializer = String::with_capacity(0);
     /// # let deserializer = String::with_capacity(0);
     /// # let router = Router::new();
-    /// router.method(Method::GET, "/desired/path", &deserializer, &serializer);
+    /// router.all("/desired/path", some_handler, &deserializer, &serializer);
     /// ```
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
         self,
