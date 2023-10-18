@@ -443,6 +443,18 @@ where
         "head"
     );
 
+    /// Bind a [`handler`](crate::handler::Runner) to every [`HTTP method`](crate::request::Method) and with the `path` and, with a
+    /// [`Serializer`](crate::serializer::BodySerializer) and
+    /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+    ///
+    /// ```rust
+    /// # async fn some_handler(req: String) -> String { req }
+    /// # type Computation = String;
+    /// # let serializer = String::with_capacity(0);
+    /// # let deserializer = String::with_capacity(0);
+    /// # let router = Router::new();
+    /// router.method(Method::GET, "/desired/path", &deserializer, &serializer);
+    /// ```
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
         self,
         path: &'static str,
