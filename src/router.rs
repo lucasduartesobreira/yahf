@@ -14,6 +14,87 @@ use crate::{
     tree::RouterTree,
 };
 
+/// Helper to create Routes
+///
+/// A Router is used to bind a [`handler`](handler::Runner) to a certain `path` and `method`, and
+/// leverage the applicability of the [`middlewares`](middleware) to these routes
+///
+/// An example:
+/// ```rust
+///# use serde::Deserialize;
+///# use serde::Serialize;
+///# use yahf::handler::Json;
+///# use yahf::request::Request;
+///# use yahf::result::Result;
+///# use yahf::response::Response;
+///# use yahf::router::Router;
+///# use yahf::server::Server;
+///# use std::time;
+///# use std::time::UNIX_EPOCH;
+///# #[derive(Debug, Deserialize, Serialize)]
+/// struct ComputationBody {
+///    value: u32,
+/// }
+///
+/// // Print the time, the method, and the path from the Request
+/// async fn log_middleware(req: Result<Request<String>>) -> Result<Request<String>>
+///# {
+///#     match req.into_inner() {
+///#        Ok(req) => {
+///#            println!(
+///#                "{} - {} - {}",
+///#                time::SystemTime::now()
+///#                    .duration_since(UNIX_EPOCH)
+///#                    .expect("Negative time")
+///#                    .as_millis(),
+///#                req.method().as_str(),
+///#                req.uri().path()
+///#            );
+///#
+///#            Ok(req).into()
+///#        }
+///#        Err(err) => Err(err).into(),
+///#    }
+///# }
+///
+/// // Handle any possible errors
+/// async fn log_error(res: Result<Response<String>>) -> Result<Response<String>>
+///# {
+///#    match res.into_inner() {
+///#        Err(err) => {
+///#            println!(
+///#                "{} - {}",
+///#                time::SystemTime::now()
+///#                    .duration_since(UNIX_EPOCH)
+///#                    .expect("Negative time")
+///#                    .as_millis(),
+///#                err.code(),
+///#            );
+///#            Err(err).into()
+///#        }
+///#        ok => ok.into(),
+///#    }
+///# }
+///
+/// // Compute something using the ComputationBody
+/// async fn some_computation(req: ComputationBody) -> ComputationBody
+///# {
+///#    ComputationBody {
+///#        value: req.value + 1,
+///#    }
+///# }
+///
+/// // Set a `Router` with both `Middlewares`.
+/// // The route `/` will become: `log_middleware -> some_computation -> log_middleware`
+/// let router = Router::new()
+///     .pre(log_middleware)
+///     .after(log_error)
+///     .get("/", some_computation, &Json::new(), &Json::new());
+///
+/// # async {
+/// #   yahf::server::Server::new().router(router);
+/// # };
+/// ```
 pub struct Router<PreM, AfterM> {
     middleware_factory: Arc<MiddlewareFactory<PreM, AfterM>>,
     get: RouterTree<'static>,
