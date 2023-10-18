@@ -134,8 +134,19 @@ impl Router<(), ()> {
 }
 
 macro_rules! method_insert {
-    ($fn: ident, $method: expr, $docs: literal) => {
-        #[doc=$docs]
+    ($fn: ident, $method: expr, $method_ref: literal, $method_name: literal) => {
+        #[doc = std::concat!("Bind a [`handler`](crate::handler::Runner) to a ",$method_ref, " and a `path`, with a")]
+        /// [`Serializer`](crate::serializer::BodySerializer) and
+        /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+        ///
+        /// ```rust
+        /// # async fn some_handler(req: String) -> String { req }
+        /// # type Computation = String;
+        /// # let serializer = String::with_capacity(0);
+        /// # let deserializer = String::with_capacity(0);
+        /// # let router = Router::new();
+        #[doc = std::concat!( "router.", $method_name, "(\"/desired/path\", &deserializer, &serializer)")]
+        /// ```
         pub fn $fn<FnIn, FnOut, Deserializer, Serializer, R>(
             self,
             path: &'static str,
@@ -307,6 +318,18 @@ where
         }
     }
 
+    /// Bind a [`handler`](crate::handler::Runner) to a [`HTTP method`](crate::request::Method) and a `path`, with a
+    /// [`Serializer`](crate::serializer::BodySerializer) and
+    /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+    ///
+    /// ```rust
+    /// #async fn some_handler(req: String) -> String { req }
+    /// #type Computation = String;
+    /// #let serializer = String::with_capacity(0);
+    /// #let deserializer = String::with_capacity(0);
+    /// #let router = Router::new();
+    /// router.method(Method::GET, "/desired/path", &deserializer, &serializer);
+    /// ```
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
         mut self,
         method: Method,
@@ -365,15 +388,60 @@ where
         self
     }
 
-    method_insert!(get, Method::GET, "");
-    method_insert!(put, Method::PUT, "");
-    method_insert!(delete, Method::DELETE, "");
-    method_insert!(post, Method::POST, "");
-    method_insert!(trace, Method::TRACE, "");
-    method_insert!(options, Method::OPTIONS, "");
-    method_insert!(connect, Method::CONNECT, "");
-    method_insert!(patch, Method::PATCH, "");
-    method_insert!(head, Method::HEAD, "");
+    method_insert!(
+        get,
+        Method::GET,
+        "[`GET Method`](crate::request::Method::GET)",
+        "get"
+    );
+    method_insert!(
+        put,
+        Method::PUT,
+        "[`PUT Method`](crate::request::Method::PUT)",
+        "put"
+    );
+    method_insert!(
+        delete,
+        Method::DELETE,
+        "[`DELETE Method`](crate::request::Method::DELETE)",
+        "delete"
+    );
+    method_insert!(
+        post,
+        Method::POST,
+        "[`POST Method`](crate::request::Method::POST)",
+        "post"
+    );
+    method_insert!(
+        trace,
+        Method::TRACE,
+        "[`TRACE Method`](crate::request::Method::TRACE)",
+        "trace"
+    );
+    method_insert!(
+        options,
+        Method::OPTIONS,
+        "[`OPTIONS Method`](crate::request::Method::OPTIONS)",
+        "options"
+    );
+    method_insert!(
+        connect,
+        Method::CONNECT,
+        "[`CONNECT Method`](crate::request::Method::CONNECT)",
+        "connect"
+    );
+    method_insert!(
+        patch,
+        Method::PATCH,
+        "[`PATCH Method`](crate::request::Method::PATCH)",
+        "patch"
+    );
+    method_insert!(
+        head,
+        Method::HEAD,
+        "[`HEAD Method`](crate::request::Method::HEAD)",
+        "head"
+    );
 
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
         self,
