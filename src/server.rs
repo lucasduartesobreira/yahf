@@ -102,7 +102,20 @@ impl Server<(), ()> {
 }
 
 macro_rules! method_reroute {
-    ($method: ident) => {
+    ($method: ident, $method_ref: literal, $method_name: literal) => {
+        #[doc = std::concat!("Bind a [`handler`](crate::handler::Runner) to a ",$method_ref, " and a `path`, with a")]
+        /// [`Serializer`](crate::serializer::BodySerializer) and
+        /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+        ///
+        /// ```rust
+        /// # use yahf::router::Router;
+        /// # async fn some_handler(req: String) -> String { req }
+        /// # type Computation = String;
+        /// # let serializer = String::with_capacity(0);
+        /// # let deserializer = String::with_capacity(0);
+        /// # let router = Router::new();
+        #[doc = std::concat!( "router.", $method_name, "(\"/desired/path\", some_handler, &deserializer, &serializer);")]
+        /// ```
         pub fn $method<FnIn, FnOut, Deserializer, Serializer, R>(
             mut self,
             path: &'static str,
@@ -134,16 +147,44 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
-    method_reroute!(get);
-    method_reroute!(put);
-    method_reroute!(delete);
-    method_reroute!(post);
-    method_reroute!(trace);
-    method_reroute!(options);
-    method_reroute!(connect);
-    method_reroute!(patch);
-    method_reroute!(head);
-    method_reroute!(all);
+    method_reroute!(get, "[`GET Method`](crate::request::Method::GET)", "get");
+    method_reroute!(put, "[`PUT Method`](crate::request::Method::PUT)", "put");
+    method_reroute!(
+        delete,
+        "[`DELETE Method`](crate::request::Method::DELETE)",
+        "delete"
+    );
+    method_reroute!(
+        post,
+        "[`POST Method`](crate::request::Method::POST)",
+        "post"
+    );
+    method_reroute!(
+        trace,
+        "[`TRACE Method`](crate::request::Method::TRACE)",
+        "trace"
+    );
+    method_reroute!(
+        options,
+        "[`OPTIONS Method`](crate::request::Method::OPTIONS)",
+        "options"
+    );
+    method_reroute!(
+        connect,
+        "[`CONNECT Method`](crate::request::Method::CONNECT)",
+        "connect"
+    );
+    method_reroute!(
+        patch,
+        "[`PATCH Method`](crate::request::Method::PATCH)",
+        "patch"
+    );
+    method_reroute!(
+        head,
+        "[`HEAD Method`](crate::request::Method::HEAD)",
+        "head"
+    );
+    method_reroute!(all, "[`HTTP method`](crate::request::Method)", "all");
 
     /// Set a handler for some HTTP method and a path
     ///
