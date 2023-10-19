@@ -217,7 +217,9 @@
 //! The repo includes [illustrative examples](https://github.com/lucasduartesobreira/yahf/tree/main/examples) demonstrating the integration of all the components
 //!
 
+#[doc(hidden)]
 pub mod deserializer;
+#[doc(hidden)]
 pub mod error;
 pub mod handler;
 pub mod middleware;
@@ -225,8 +227,12 @@ pub mod request;
 pub mod response;
 pub mod result;
 pub mod router;
+#[doc(hidden)]
 pub mod runner_input;
+#[doc(hidden)]
 pub mod runner_output;
+#[doc(hidden)]
 pub mod serializer;
 pub mod server;
+#[doc(hidden)]
 pub mod tree;
