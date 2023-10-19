@@ -221,7 +221,40 @@ where
         self
     }
 
-    /// Extend the `Server` with a `Router`
+    /// Extend the [Server] with a [Router] and return the new [Server]
+    ///
+    /// A example:
+    ///
+    /// ```rust
+    /// # use yahf::request::Request;
+    /// # use yahf::router::Router;
+    ///# use yahf::result::Result;
+    ///# use serde::Deserialize;
+    ///# use serde::Serialize;
+    ///# use yahf::handler::Json;
+    /// #
+    /// # #[derive(Deserialize, Serialize)]
+    /// # struct Computation { value: u64 }
+    /// #
+    /// async fn logger(req: Result<Request<String>>) -> Result<Request<String>>
+    /// # { req }
+    /// #
+    /// async fn some_computation(req: Computation) -> Computation
+    /// # {req}
+    /// #
+    /// // Define `Server` with a Logger `PreMiddleware`
+    /// let server = Router::new().pre(logger);
+    /// // Define `Router` with a router to "/desired/path"
+    /// let router = Router::new().get("/desired/path", some_computation, &Json::default(), &Json::default());
+    ///
+    /// // A server with all routes of the Server plus all routes of B with logger applied to.
+    /// // This also concatenate the server's middlewares with router's middleware, so any new
+    /// // Route will have both middlewares
+    /// let server_final = server.router(router);
+    /// ```
+    ///
+    /// By extending server with router, we're basically applying the middlewares of the server to
+    /// routes of the middleware, adding Router routes to the Server and then concatenating Server's middlewares with Router's middlewares
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         self,
         router: Router<OtherPreM, OtherAfterM>,
