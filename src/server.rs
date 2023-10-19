@@ -1,3 +1,5 @@
+//! Struct to setup and run the HTTP Server
+
 use hyper_rustls::TlsAcceptor;
 
 use std::{
