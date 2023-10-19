@@ -1,12 +1,17 @@
+//! NewType of [Result](std::result::Result)
+
 use std::ops::{Deref, DerefMut};
 
 use crate::error::Error;
 
 pub(crate) type InternalResult<T> = std::result::Result<T, Error>;
 
+/// NewType of [Result](std::result::Result)
 pub struct Result<T>(InternalResult<T>);
 
 impl<T> Result<T> {
+    /// Consume [NewType](crate::result::Result) and Return the original
+    /// [Response](std::result::Result)
     pub fn into_inner(self) -> InternalResult<T> {
         self.0
     }
