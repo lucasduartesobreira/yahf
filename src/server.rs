@@ -86,6 +86,7 @@ where
 }
 
 impl Server<(), ()> {
+    /// Create a new [Server]
     pub fn new() -> Server<
         impl PreMiddleware<
             FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
