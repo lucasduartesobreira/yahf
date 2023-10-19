@@ -28,6 +28,29 @@ use hyper::{
 
 use request::Method;
 
+/// Configuration and runtime for the HTTP Server
+///
+/// It's used to set define [`routes`](crate::handler::Runner), [`global middlewares`](crate::middleware) and [`start listening`](crate::server::Server::listen) for requests
+///
+/// An example of usage:
+/// ```rust,no_run
+/// use yahf::server::Server;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let server = Server::new().get(
+///         "/",
+///         || async { "Hello world".to_string() },
+///         &(),
+///         &String::with_capacity(0),
+///     );
+///
+///     server
+///         .listen(([127, 0, 0, 1], 8000).into())
+///         .await
+///         .unwrap();
+/// }
+/// ```
 pub struct Server<PreM, AfterM> {
     router: Router<PreM, AfterM>,
 }
