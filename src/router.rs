@@ -265,8 +265,8 @@ where
         self
     }
 
-    /// Append a [`PreMiddleware`](crate::middleware::PreMiddleware) on the
-    /// [`PreMiddleware`](crate::middleware::PreMiddleware) and return the [Router]
+    /// Append a [`PreMiddleware`] on the
+    /// [`PreMiddleware`] and return the [Router]
     pub fn pre<NewPreM, NewFut, NewResultP>(
         self,
         middleware: NewPreM,
@@ -293,8 +293,8 @@ where
         }
     }
 
-    /// Append a [`AfterMiddleware`](crate::middleware::AfterMiddleware) on the
-    /// [`AfterMiddleware`](middleware::PreMiddleware)
+    /// Append a [`AfterMiddleware`] on the
+    /// [`AfterMiddleware`]
     pub fn after<NewAfterM, NewFut, NewResultA>(
         self,
         middleware: NewAfterM,

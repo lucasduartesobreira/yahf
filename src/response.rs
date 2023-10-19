@@ -45,7 +45,7 @@ impl Response<()> {
 }
 
 impl<T> Response<T> {
-    /// Create a new instance of [Response](crate::response::Response)
+    /// Create a new instance of [Response]
     pub fn new(value: T) -> Self {
         Self(HttpResponse::new(value))
     }
@@ -58,7 +58,7 @@ impl<T> Response<T> {
         Response(HttpResponse::from_parts(parts, body))
     }
 
-    /// Transform the `Body` of a [Response](crate::response::Response) using a callback that
+    /// Transform the `Body` of a [Response] using a callback that
     /// returns a result
     pub fn and_then<BodyType>(
         self,
