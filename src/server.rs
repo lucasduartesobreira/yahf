@@ -186,10 +186,20 @@ where
     );
     method_reroute!(all, "[`HTTP method`](crate::request::Method)", "all");
 
-    /// Set a handler for some HTTP method and a path
+    /// Bind a [`handler`](crate::handler::Runner) to a [`HTTP method`](crate::request::Method) and a `path`, with a
+    /// [`Serializer`](crate::serializer::BodySerializer) and
+    /// [`Deserializer`](crate::deserializer::BodyDeserializer)
     ///
-    /// Path accept any str formatted as `/path/to/resource`. It's possible to add wildcard matcher
-    /// using `{resource}` format.
+    /// ```rust
+    /// # use yahf::router::Router;
+    /// # use yahf::request::Method;
+    /// # async fn some_handler(req: String) -> String { req }
+    /// # type Computation = String;
+    /// # let serializer = String::with_capacity(0);
+    /// # let deserializer = String::with_capacity(0);
+    /// # let router = Router::new();
+    /// router.method(Method::GET, "/desired/path", some_handler, &deserializer, &serializer);
+    /// ```
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
         mut self,
         method: Method,
