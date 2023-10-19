@@ -1,5 +1,3 @@
-#![allow(incomplete_features)]
-#![feature(return_position_impl_trait_in_trait)]
 #![warn(missing_docs)]
 
 //! YAHF is an web framework for Rust focused on developer experience, extensibility, and
