@@ -5,6 +5,13 @@
 //! YAHF is an web framework for Rust focused on developer experience, extensibility, and
 //! performance.
 //!
+//! >
+//! >
+//! > **Nightly until [`RPITIT`](https://releases.rs/docs/1.75.0/) is stable**
+//! >
+//! >
+//!  ---
+//!
 //! # Table of Contents
 //! - [Features](#features)
 //! - [Example](#example)
