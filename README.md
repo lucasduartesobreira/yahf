@@ -7,7 +7,7 @@
     <b>Yet Another HTTP Framework</b>
 </h1>
 
-> **Warning: Currently in the experimental phase, everything can change.**
+> **Warning: YAHF works only on nightly until [`RPITIT`](https://releases.rs/docs/1.75.0/) is stable**
 
 The goal of `YAHF` is both to provide a good developer experience and to be easy to extend. 
 
@@ -16,102 +16,200 @@ It runs on stable rust;
 Serialization and Deserialization internally dealt with;
 No new macros;
 
+# Table of Contents
+- [Features](#features)
+- [Example](#example)
+- [Routing](#routing)
+- [Handlers](#handlers)
+- [Extensability](#extensability)
+- [Middleware](#middleware)
+- [Examples](#examples)
+- [Goals](#goals-for-v1.0.0)
+
+# Features
+
+- Macro free Routing API
+- Predictable error handling
+- Native serialization and deserialization built into the handler
+- Friendly syntax
+
+# Example
+
+The `Hello world` of YAHF is:
+
+```rust
+use yahf::server::Server;
+
+#[tokio::main]
+async fn main() {
+ let server = Server::new().get(
+     "/",
+     || async { "Hello world".to_string() },
+     &(),
+     &String::with_capacity(0),
+ );
+
+ server
+     .listen(([127, 0, 0, 1], 8000).into())
+     .await
+     .unwrap();
+}
+
+```
+
+# Routing
+
+[`Router`](router::Router) is used to bind handlers to paths.\
+
+```rust
+use yahf::router::Router;
+
+// Router
+let router = Router::new()
+ .get("/", root_get, &(), &())
+ .get("/foo", foo_get, &(), &())
+ .post("/foo", foo_post, &(), &())
+ .delete("/foo/bar", bar_delete, &(), &());
+
+// calls respectively each of these handlers
+
+async fn root_get() {}
+async fn foo_get() {}
+async fn foo_post() {}
+async fn bar_delete() {}
+```
+
+[`Server`](server::Server) shares these features from [`Router`](router::Router)
+
+# Handlers
+
+On YAHF, a [`handler`](handler) is a async function that is used to handle a `Route`. An acceptable
+`handler` implements the trait [`Runner`](handler::Runner). By default, these signatures are
+supported:
+
+```rust
+async fn handler1() -> ResponseBody  {todo!()}
+async fn handler2() -> Response<ResponseBody>  {todo!()}
+async fn handler3(req: RequestBody) -> ResponseBody  {todo!()}
+async fn handler4(req: Request<RequestBody>) -> ResponseBody {todo!()}
+async fn handler5(req: RequestBody) -> Response<ResponseBody> {todo!()}
+async fn handler6(req: Request<RequestBody>) -> Response<ResponseBody> {todo!()}
+async fn handler7() -> Result<ResponseBody> {todo!()}
+async fn handler8() -> Result<Response<ResponseBody>> {todo!()}
+async fn handler9(req: Result<RequestBody>) -> Result<ResponseBody> {todo!()}
+async fn handler10(req: Result<Request<RequestBody>>) -> Result<ResponseBody> {todo!()}
+async fn handler11(req: Result<RequestBody>) -> Result<Response<ResponseBody>> {todo!()}
+async fn handler12(req: Result<Request<RequestBody>>) -> Result<Response<ResponseBody>> {todo!()}
+```
+
+All these signatures comes from the implementations of [`RunnerInput`](runner_input::RunnerInput) and [`RunnerOutput`](runner_output::RunnerOutput).
+
+ # Extensability
+
+ YAHF `handlers` are modular by design. A `handler` is decomposed into four modules: a body [`deserializer`](deserializer::BodyDeserializer),
+ a body [`serializer`](serializer::BodySerializer), [`arguments`](runner_input::RunnerInput), and a [`response`](runner_output::RunnerOutput).
+ These modules are glued together using the [`Runner`](handler::Runner) trait. Adding new
+ functionality to the handlers is just a matter of implementing one of these traits. For more
+ details, check the trait docs
+
+ # Middleware
+
+ [`Middleware`](middleware) are async functions that will run previously or after a
+ `handler`. These can really useful when combined with a [`Router`](router::Router) or a
+ [`Server`](server::Server) to reuse logic and create `"pipelines"`.
+
+ <details>
+ <summary>Example</summary>
+ ```rust
+ use serde::Deserialize;
+ use serde::Serialize;
+ use yahf::handler::Json;
+ use yahf::request::Request;
+ use yahf::result::Result;
+ use yahf::response::Response;
+ use yahf::router::Router;
+ use yahf::server::Server;
+
+ use std::time;
+ use std::time::UNIX_EPOCH;
+#[derive(Debug, Deserialize, Serialize)]
+ struct ComputationBody
+{
+value: u32,
+}
+
+// Print the time, the method, and the path from the Request
+async fn log_middleware(req: Result<Request<String>>) -> Result<Request<String>>
+{
+    match req.into_inner() {
+        Ok(req) => {
+            println!(
+                    "{} - {} - {}",
+                    time::SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Negative time")
+                    .as_millis(),
+                    req.method().as_str(),
+                    req.uri().path()
+                    );
+
+            Ok(req).into()
+        }
+        Err(err) => Err(err).into(),
+    }
+}
+
+// Handle any possible errors
+async fn log_error(res: Result<Response<String>>) -> Result<Response<String>>
+{
+    match res.into_inner() {
+        Err(err) => {
+            println!(
+                    "{} - {}",
+                    time::SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Negative time")
+                    .as_millis(),
+                    err.code(),
+                    );
+            Err(err).into()
+        }
+        ok => ok.into(),
+    }
+}
+
+// Compute something using the ComputationBody
+async fn some_computation(req: ComputationBody) -> ComputationBody
+{
+    ComputationBody {
+value: req.value + 1,
+    }
+}
+
+// Set a [`Router`](router::Router) with both `Middlewares`.
+// The route `/` will become: `log_middleware -> some_computation -> log_middleware`
+    let router = Router::new()
+    .pre(log_middleware)
+.after(log_error)
+    .get("/", some_computation, &Json::new(), &Json::new());
+    ```
+    More of this example [here](https://github.com/lucasduartesobreira/yahf/blob/main/examples/router_example/main.rs)
+    </details>
+
+
+ # Examples
+
+ The repo includes [illustrative examples](https://github.com/lucasduartesobreira/yahf/tree/main/examples) demonstrating the integration of all the components
+
+
 ## Goals for v1.0.0
 
 > **`YAHF` follows the `SemVer`.**
 
 The objective for v1.0.0 is to have a stable project that can deal with real-world problems with good developer experience and the possibility to extend the project to suit any need.
 
-The goals for this version are:
+The goal features for this version are:
 
-- [ ] Composable routing system;
-- [ ] Middleware functions;
-- [ ] HTTP/1.1 with or without security.
-
-### Code examples
-
-The default code structure will look something like this
-
-#### Handlers
-
-Any function that follows some of these signatures will be considered an handler:
-
-```rust
-async fn handler_name(req: Request<ReqBodyType>) -> Response<ResBodyType> {/*Some code*/}
-async fn handler_name(req: ReqBodyType) -> Response<ResBodyType> {/*Some code*/}
-async fn handler_name() -> Response<ResBodyType> {/*Some code*/}
-async fn handler_name(req: Request<ReqBodyType>) -> ResBodyType {/*Some code*/}
-async fn handler_name(req: ReqBodyType) -> ResBodyType {/*Some code*/}
-async fn handler_name() -> ResBodyType {/*Some code*/}
-```
-
-#### Routing
-
-There will be two structures that will be used to setup routes, one is the `Server` and the other is the `Router`.
-Both will follow the same pattern to register a new `route` in them, but only `Server` will be able to start listening for requests.
-
-##### Adding Routes
-
-Adding routes will be:
-
-```rust
-// Registering an handler for a route and a method
-router.<method>("/path/goes/here", handler, RequestBodyDeserializer, ResponseBodySerializer);
-```
-
-Here both `Deserializer` and `Serializer` are structs with zero data. For more details look into the [#2]( https://github.com/lucasduartesobreira/yahf/pull/2 ).
-
-
-##### Router
-
-`Router` is the way to compose the structure, as it will allow to merge with other routers, this includes the `Server`. This is an example of what would be the usage of a `Router`:
-
-```rust
-let some_router: Router = Router::new();
-some_router.all('/user', /*Some handler*/, &(), &Json);
-
-let another_router: Router = Router::new();
-another_router.all('/function', /*Some handler*/, &(), &String);
-
-let updated_server: Server = server.router(some_router)?.router(another_router)?;
-```
-
-There is one more thing, `Router` as we'll see it later, will be the way to apply a middleware to an set of routes.
-
-
-##### Server
-
-`Server` is the core structure of an application as everything around is needed to set the `Server` up. Mainly, after setting up, running the application it's simple as:
-
-```rust
-server.listen('/*The IpAddress to bind and start listen*/')
-```
-
-#### Middleware
-
-It'll be supported two types of middleware functions: `PreMiddleware` and `AfterMiddleware`
-
-##### PreMiddleware
-
-Apply transformations to `Request`:
-
-```rust
-async fn some_middleware(request: Result<Request<String>>) -> Result<Request<String>> { /*Function body*/ }
-
-
-// When building a `Router` or a `Server`
-let router = router.pre(some_middleware);
-```
-
-
-##### AfterMiddleware
-
-Apply transformations to `Response`:
-
-```rust
-async fn some_after_middleware(response: Result<Response<String>>) -> Result<Response<String>> { /*Function body*/}
-
-
-// When building a `Router` or a `Server`
-let router = router.after(some_middleware);
-```
+- [x] Composable routing system;
+- [x] Middleware functions;
+- [x] HTTP/1.1 with or without security.
