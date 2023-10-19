@@ -11,11 +11,6 @@
 
 The goal of `YAHF` is both to provide a good developer experience and to be easy to extend. 
 
-Following the author's vision, those are the project rules:
-It runs on stable rust;
-Serialization and Deserialization internally dealt with;
-No new macros;
-
 # Table of Contents
 - [Features](#features)
 - [Example](#example)
