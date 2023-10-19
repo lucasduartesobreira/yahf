@@ -271,6 +271,8 @@ where
         Self { router: new_router }
     }
 
+    /// Append a [`PreMiddleware`](crate::middleware::PreMiddleware) on the
+    /// [`PreMiddleware`](crate::middleware::PreMiddleware) and return the [Server]
     pub fn pre<NewPreM, NewFut, NewResultP>(
         self,
         middleware: NewPreM,
@@ -285,6 +287,8 @@ where
         Server { router: new_router }
     }
 
+    /// Append a [`AfterMiddleware`](crate::middleware::AfterMiddleware) on the
+    /// [`AfterMiddleware`](middleware::PreMiddleware) and return the [Server]
     pub fn after<NewAfterM, NewFut, NewResultA>(
         self,
         middleware: NewAfterM,
