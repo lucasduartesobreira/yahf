@@ -1,3 +1,6 @@
+//! Struct to help with binding handlers to paths and Middlewares
+//!
+//! Refeer to the [Router] for more information
 use std::sync::Arc;
 
 use futures::Future;
@@ -11,6 +14,87 @@ use crate::{
     tree::RouterTree,
 };
 
+/// Helper to create Routes
+///
+/// A Router is used to bind a [`handler`](crate::handler::Runner) to a certain `path` and `method`, and
+/// leverage the applicability of the [`middlewares`](crate::middleware) to these routes
+///
+/// An example:
+/// ```rust
+///# use serde::Deserialize;
+///# use serde::Serialize;
+///# use yahf::handler::Json;
+///# use yahf::request::Request;
+///# use yahf::result::Result;
+///# use yahf::response::Response;
+///# use yahf::router::Router;
+///# use yahf::server::Server;
+///# use std::time;
+///# use std::time::UNIX_EPOCH;
+///# #[derive(Debug, Deserialize, Serialize)]
+/// struct ComputationBody {
+///    value: u32,
+/// }
+///
+/// // Print the time, the method, and the path from the Request
+/// async fn log_middleware(req: Result<Request<String>>) -> Result<Request<String>>
+///# {
+///#     match req.into_inner() {
+///#        Ok(req) => {
+///#            println!(
+///#                "{} - {} - {}",
+///#                time::SystemTime::now()
+///#                    .duration_since(UNIX_EPOCH)
+///#                    .expect("Negative time")
+///#                    .as_millis(),
+///#                req.method().as_str(),
+///#                req.uri().path()
+///#            );
+///#
+///#            Ok(req).into()
+///#        }
+///#        Err(err) => Err(err).into(),
+///#    }
+///# }
+///
+/// // Handle any possible errors
+/// async fn log_error(res: Result<Response<String>>) -> Result<Response<String>>
+///# {
+///#    match res.into_inner() {
+///#        Err(err) => {
+///#            println!(
+///#                "{} - {}",
+///#                time::SystemTime::now()
+///#                    .duration_since(UNIX_EPOCH)
+///#                    .expect("Negative time")
+///#                    .as_millis(),
+///#                err.code(),
+///#            );
+///#            Err(err).into()
+///#        }
+///#        ok => ok.into(),
+///#    }
+///# }
+///
+/// // Compute something using the ComputationBody
+/// async fn some_computation(req: ComputationBody) -> ComputationBody
+///# {
+///#    ComputationBody {
+///#        value: req.value + 1,
+///#    }
+///# }
+///
+/// // Set a `Router` with both `Middlewares`.
+/// // The route `/` will become: `log_middleware -> some_computation -> log_middleware`
+/// let router = Router::new()
+///     .pre(log_middleware)
+///     .after(log_error)
+///     .get("/", some_computation, &Json::new(), &Json::new());
+///
+/// # async {
+/// #   yahf::server::Server::new().router(router);
+/// # };
+/// ```
 pub struct Router<PreM, AfterM> {
     middleware_factory: Arc<MiddlewareFactory<PreM, AfterM>>,
     get: RouterTree<'static>,
@@ -25,6 +109,7 @@ pub struct Router<PreM, AfterM> {
 }
 
 impl Router<(), ()> {
+    /// Create a new [Router]
     pub fn new() -> Router<
         impl PreMiddleware<
             FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
@@ -49,7 +134,20 @@ impl Router<(), ()> {
 }
 
 macro_rules! method_insert {
-    ($fn: ident, $method: expr) => {
+    ($fn: ident, $method: expr, $method_ref: literal, $method_name: literal) => {
+        #[doc = std::concat!("Bind a [`handler`](crate::handler::Runner) to a ",$method_ref, " and a `path`, with a")]
+        /// [`Serializer`](crate::serializer::BodySerializer) and
+        /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+        ///
+        /// ```rust
+        /// # use yahf::router::Router;
+        /// # async fn some_handler(req: String) -> String { req }
+        /// # type Computation = String;
+        /// # let serializer = String::with_capacity(0);
+        /// # let deserializer = String::with_capacity(0);
+        /// # let router = Router::new();
+        #[doc = std::concat!( "router.", $method_name, "(\"/desired/path\", some_handler, &deserializer, &serializer);")]
+        /// ```
         pub fn $fn<FnIn, FnOut, Deserializer, Serializer, R>(
             self,
             path: &'static str,
@@ -89,6 +187,41 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
+    /// Extend a [Router] with another one and return the new [Router]
+    ///
+    /// A example:
+    ///
+    /// ```rust
+    /// # use yahf::request::Request;
+    /// # use yahf::router::Router;
+    ///# use yahf::result::Result;
+    ///# use serde::Deserialize;
+    ///# use serde::Serialize;
+    ///# use yahf::handler::Json;
+    /// #
+    /// # #[derive(Deserialize, Serialize)]
+    /// # struct Computation { value: u64 }
+    /// #
+    /// async fn logger(req: Result<Request<String>>) -> Result<Request<String>>
+    /// # { req }
+    /// #
+    /// async fn some_computation(req: Computation) -> Computation
+    /// # {req}
+    /// #
+    /// // Define `Router A` with a Logger `PreMiddleware`
+    /// let router_a = Router::new().pre(logger);
+    /// // Define `Router B` with a router to "/desired/path"
+    /// let router_b = Router::new().get("/desired/path", some_computation, &Json::default(), &Json::default());
+    ///
+    /// // All routes of the Router A plus all routes of B with logger applied to. This also
+    /// // concatenate the A's middlewares with B's middleware, so any new Route will have A's
+    /// // middleware -> B's middleware
+    /// let router_a_and_b = router_a.router(router_b);
+    /// ```
+    ///
+    /// By extending router A with router B, we're basically applying the middlewares of A to
+    /// routes of B, adding B routes to A and then concatenating A's middlewares with B's
+    /// middlewares
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         mut self,
         router: Router<OtherPreM, OtherAfterM>,
@@ -132,6 +265,8 @@ where
         self
     }
 
+    /// Append a [`PreMiddleware`] on the
+    /// [`PreMiddleware`] and return the [Router]
     pub fn pre<NewPreM, NewFut, NewResultP>(
         self,
         middleware: NewPreM,
@@ -158,6 +293,8 @@ where
         }
     }
 
+    /// Append a [`AfterMiddleware`] on the
+    /// [`AfterMiddleware`]
     pub fn after<NewAfterM, NewFut, NewResultA>(
         self,
         middleware: NewAfterM,
@@ -184,6 +321,20 @@ where
         }
     }
 
+    /// Bind a [`handler`](crate::handler::Runner) to a [`HTTP method`](crate::request::Method) and a `path`, with a
+    /// [`Serializer`](crate::serializer::BodySerializer) and
+    /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+    ///
+    /// ```rust
+    /// # use yahf::router::Router;
+    /// # use yahf::request::Method;
+    /// # async fn some_handler(req: String) -> String { req }
+    /// # type Computation = String;
+    /// # let serializer = String::with_capacity(0);
+    /// # let deserializer = String::with_capacity(0);
+    /// # let router = Router::new();
+    /// router.method(Method::GET, "/desired/path", some_handler, &deserializer, &serializer);
+    /// ```
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
         mut self,
         method: Method,
@@ -242,16 +393,74 @@ where
         self
     }
 
-    method_insert!(get, Method::GET);
-    method_insert!(put, Method::PUT);
-    method_insert!(delete, Method::DELETE);
-    method_insert!(post, Method::POST);
-    method_insert!(trace, Method::TRACE);
-    method_insert!(options, Method::OPTIONS);
-    method_insert!(connect, Method::CONNECT);
-    method_insert!(patch, Method::PATCH);
-    method_insert!(head, Method::HEAD);
+    method_insert!(
+        get,
+        Method::GET,
+        "[`GET Method`](crate::request::Method::GET)",
+        "get"
+    );
+    method_insert!(
+        put,
+        Method::PUT,
+        "[`PUT Method`](crate::request::Method::PUT)",
+        "put"
+    );
+    method_insert!(
+        delete,
+        Method::DELETE,
+        "[`DELETE Method`](crate::request::Method::DELETE)",
+        "delete"
+    );
+    method_insert!(
+        post,
+        Method::POST,
+        "[`POST Method`](crate::request::Method::POST)",
+        "post"
+    );
+    method_insert!(
+        trace,
+        Method::TRACE,
+        "[`TRACE Method`](crate::request::Method::TRACE)",
+        "trace"
+    );
+    method_insert!(
+        options,
+        Method::OPTIONS,
+        "[`OPTIONS Method`](crate::request::Method::OPTIONS)",
+        "options"
+    );
+    method_insert!(
+        connect,
+        Method::CONNECT,
+        "[`CONNECT Method`](crate::request::Method::CONNECT)",
+        "connect"
+    );
+    method_insert!(
+        patch,
+        Method::PATCH,
+        "[`PATCH Method`](crate::request::Method::PATCH)",
+        "patch"
+    );
+    method_insert!(
+        head,
+        Method::HEAD,
+        "[`HEAD Method`](crate::request::Method::HEAD)",
+        "head"
+    );
 
+    /// Bind a [`handler`](crate::handler::Runner) to every [`HTTP method`](crate::request::Method) and with the `path` and, with a
+    /// [`Serializer`](crate::serializer::BodySerializer) and
+    /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+    ///
+    /// ```rust
+    /// # use yahf::router::Router;
+    /// # async fn some_handler(req: String) -> String { req }
+    /// # type Computation = String;
+    /// # let serializer = String::with_capacity(0);
+    /// # let deserializer = String::with_capacity(0);
+    /// # let router = Router::new();
+    /// router.all("/desired/path", some_handler, &deserializer, &serializer);
+    /// ```
     pub fn all<FnIn, FnOut, Deserializer, Serializer, R>(
         self,
         path: &'static str,

@@ -1,3 +1,5 @@
+//! Async functions that runs before or after the handler
+
 use std::sync::Arc;
 
 use futures::Future;

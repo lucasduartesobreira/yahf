@@ -1,3 +1,4 @@
+//! Newtype of [Request](http::Request)
 use std::ops::{Deref, DerefMut};
 
 use crate::result::InternalResult;
@@ -10,6 +11,7 @@ pub use http::Method;
 pub use http::Request as HttpRequest;
 pub use http::Uri;
 
+/// Newtype of [Request](http::Request)
 #[derive(Default)]
 pub struct Request<T>(HttpRequest<T>);
 
@@ -37,13 +39,14 @@ impl Request<()> {
 }
 
 impl<T> Request<T> {
+    /// Create a new Request
     pub fn new(value: T) -> Self {
         Self(HttpRequest::new(value))
     }
 
     /// Creates a new `Request` with the given components parts and body.
     ///
-    /// Just a dummy to http::Request function
+    /// Just a dummy to [from_parts](http::Request::from_parts) function
     #[inline]
     pub fn from_parts(parts: Parts, body: T) -> Request<T> {
         Request(HttpRequest::from_parts(parts, body))
@@ -58,13 +61,14 @@ impl<T> Request<T> {
         callback(body).map(|body| Request(HttpRequest::from_parts(parts, body)))
     }
 
+    /// Consume [NewType](crate::request::Request) and Return the original [Request](http::Request)
     pub fn into_inner(self) -> HttpRequest<T> {
         self.0
     }
 
     /// Consumes the request, returning just the body.
     ///
-    /// Just a dummy to http::Request function
+    /// Just a dummy to [into_body](http::Request::into_body) function
     #[inline]
     pub fn into_body(self) -> T {
         self.0.into_body()
@@ -72,7 +76,7 @@ impl<T> Request<T> {
 
     /// Consumes the request returning the head and body parts.
     ///
-    /// Just a dummy to http::Request function
+    /// Just a dummy to [into_parts](http::Request::into_parts) function
     #[inline]
     pub fn into_parts(self) -> (Parts, T) {
         self.0.into_parts()
@@ -81,7 +85,7 @@ impl<T> Request<T> {
     /// Consumes the request returning a new request with body mapped to the
     /// return type of the passed in function.
     ///
-    /// Just a dummy to http::Request function
+    /// Just a dummy to [map](http::Request::map) function
     #[inline]
     pub fn map<F, U>(self, f: F) -> Request<U>
     where

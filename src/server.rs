@@ -1,3 +1,5 @@
+//! Struct to setup and run the HTTP Server
+
 use hyper_rustls::TlsAcceptor;
 
 use std::{
@@ -26,6 +28,29 @@ use hyper::{
 
 use request::Method;
 
+/// Configuration and runtime for the HTTP Server
+///
+/// It's used to set define [`routes`](crate::handler::Runner), [`global middlewares`](crate::middleware) and [`start listening`](crate::server::Server::listen) for requests
+///
+/// An example of usage:
+/// ```rust,no_run
+/// use yahf::server::Server;
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let server = Server::new().get(
+///         "/",
+///         || async { "Hello world".to_string() },
+///         &(),
+///         &String::with_capacity(0),
+///     );
+///
+///     server
+///         .listen(([127, 0, 0, 1], 8000).into())
+///         .await
+///         .unwrap();
+/// }
+/// ```
 pub struct Server<PreM, AfterM> {
     router: Router<PreM, AfterM>,
 }
@@ -61,6 +86,7 @@ where
 }
 
 impl Server<(), ()> {
+    /// Create a new [Server]
     pub fn new() -> Server<
         impl PreMiddleware<
             FutCallResponse = impl Future<Output = impl Into<InternalResult<Request<String>>>>,
@@ -76,7 +102,20 @@ impl Server<(), ()> {
 }
 
 macro_rules! method_reroute {
-    ($method: ident) => {
+    ($method: ident, $method_ref: literal, $method_name: literal) => {
+        #[doc = std::concat!("Bind a [`handler`](crate::handler::Runner) to a ",$method_ref, " and a `path`, with a")]
+        /// [`Serializer`](crate::serializer::BodySerializer) and
+        /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+        ///
+        /// ```rust
+        /// # use yahf::router::Router;
+        /// # async fn some_handler(req: String) -> String { req }
+        /// # type Computation = String;
+        /// # let serializer = String::with_capacity(0);
+        /// # let deserializer = String::with_capacity(0);
+        /// # let router = Router::new();
+        #[doc = std::concat!( "router.", $method_name, "(\"/desired/path\", some_handler, &deserializer, &serializer);")]
+        /// ```
         pub fn $method<FnIn, FnOut, Deserializer, Serializer, R>(
             mut self,
             path: &'static str,
@@ -108,17 +147,59 @@ where
     FutA: Future<Output = ResultA> + std::marker::Send + 'static,
     ResultA: Into<InternalResult<Response<String>>> + std::marker::Send + 'static,
 {
-    method_reroute!(get);
-    method_reroute!(put);
-    method_reroute!(delete);
-    method_reroute!(post);
-    method_reroute!(trace);
-    method_reroute!(options);
-    method_reroute!(connect);
-    method_reroute!(patch);
-    method_reroute!(head);
-    method_reroute!(all);
+    method_reroute!(get, "[`GET Method`](crate::request::Method::GET)", "get");
+    method_reroute!(put, "[`PUT Method`](crate::request::Method::PUT)", "put");
+    method_reroute!(
+        delete,
+        "[`DELETE Method`](crate::request::Method::DELETE)",
+        "delete"
+    );
+    method_reroute!(
+        post,
+        "[`POST Method`](crate::request::Method::POST)",
+        "post"
+    );
+    method_reroute!(
+        trace,
+        "[`TRACE Method`](crate::request::Method::TRACE)",
+        "trace"
+    );
+    method_reroute!(
+        options,
+        "[`OPTIONS Method`](crate::request::Method::OPTIONS)",
+        "options"
+    );
+    method_reroute!(
+        connect,
+        "[`CONNECT Method`](crate::request::Method::CONNECT)",
+        "connect"
+    );
+    method_reroute!(
+        patch,
+        "[`PATCH Method`](crate::request::Method::PATCH)",
+        "patch"
+    );
+    method_reroute!(
+        head,
+        "[`HEAD Method`](crate::request::Method::HEAD)",
+        "head"
+    );
+    method_reroute!(all, "[`HTTP method`](crate::request::Method)", "all");
 
+    /// Bind a [`handler`](crate::handler::Runner) to a [`HTTP method`](crate::request::Method) and a `path`, with a
+    /// [`Serializer`](crate::serializer::BodySerializer) and
+    /// [`Deserializer`](crate::deserializer::BodyDeserializer)
+    ///
+    /// ```rust
+    /// # use yahf::router::Router;
+    /// # use yahf::request::Method;
+    /// # async fn some_handler(req: String) -> String { req }
+    /// # type Computation = String;
+    /// # let serializer = String::with_capacity(0);
+    /// # let deserializer = String::with_capacity(0);
+    /// # let router = Router::new();
+    /// router.method(Method::GET, "/desired/path", some_handler, &deserializer, &serializer);
+    /// ```
     pub fn method<FnIn, FnOut, Deserializer, Serializer, R>(
         mut self,
         method: Method,
@@ -140,6 +221,40 @@ where
         self
     }
 
+    /// Extend the [Server] with a [Router] and return the new [Server]
+    ///
+    /// A example:
+    ///
+    /// ```rust
+    /// # use yahf::request::Request;
+    /// # use yahf::router::Router;
+    ///# use yahf::result::Result;
+    ///# use serde::Deserialize;
+    ///# use serde::Serialize;
+    ///# use yahf::handler::Json;
+    /// #
+    /// # #[derive(Deserialize, Serialize)]
+    /// # struct Computation { value: u64 }
+    /// #
+    /// async fn logger(req: Result<Request<String>>) -> Result<Request<String>>
+    /// # { req }
+    /// #
+    /// async fn some_computation(req: Computation) -> Computation
+    /// # {req}
+    /// #
+    /// // Define `Server` with a Logger `PreMiddleware`
+    /// let server = Router::new().pre(logger);
+    /// // Define `Router` with a router to "/desired/path"
+    /// let router = Router::new().get("/desired/path", some_computation, &Json::default(), &Json::default());
+    ///
+    /// // A server with all routes of the Server plus all routes of B with logger applied to.
+    /// // This also concatenate the server's middlewares with router's middleware, so any new
+    /// // Route will have both middlewares
+    /// let server_final = server.router(router);
+    /// ```
+    ///
+    /// By extending server with router, we're basically applying the middlewares of the server to
+    /// routes of the middleware, adding Router routes to the Server and then concatenating Server's middlewares with Router's middlewares
     pub fn router<OtherPreM, OtherAfterM, OtherFutA, OtherFutP, OtherResultP, OtherResultA>(
         self,
         router: Router<OtherPreM, OtherAfterM>,
@@ -156,6 +271,8 @@ where
         Self { router: new_router }
     }
 
+    /// Append a [`PreMiddleware`] on the
+    /// [`PreMiddleware`] and return the [Server]
     pub fn pre<NewPreM, NewFut, NewResultP>(
         self,
         middleware: NewPreM,
@@ -170,6 +287,8 @@ where
         Server { router: new_router }
     }
 
+    /// Append a [`AfterMiddleware`] on the
+    /// [`AfterMiddleware`] and return the [Server]
     pub fn after<NewAfterM, NewFut, NewResultA>(
         self,
         middleware: NewAfterM,
@@ -184,6 +303,8 @@ where
         Server { router: new_router }
     }
 
+    /// Start listening for [Requests](crate::request::Request) on the
+    /// [address](std::net::SocketAddr)
     pub async fn listen(self, addr: std::net::SocketAddr) -> Result<(), hyper::Error> {
         let server = Arc::new(self);
         let make_svc = make_service_fn(move |_: &AddrStream| {
@@ -197,6 +318,11 @@ where
         Ok(())
     }
 
+    /// Start securely listening for [Requests](crate::request::Request) on the
+    /// [address](std::net::SocketAddr) using the [rustls
+    /// config](tokio_rustls::rustls::ServerConfig)
+    ///
+    /// [A example]( https://github.com/lucasduartesobreira/yahf/tree/main/examples/tls )
     pub async fn listen_rustls(
         self,
         config: ServerConfig,
