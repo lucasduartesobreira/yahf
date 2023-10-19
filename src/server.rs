@@ -303,6 +303,8 @@ where
         Server { router: new_router }
     }
 
+    /// Start listening for [Requests](crate::request::Request) on the
+    /// [address](std::net::SocketAddr)
     pub async fn listen(self, addr: std::net::SocketAddr) -> Result<(), hyper::Error> {
         let server = Arc::new(self);
         let make_svc = make_service_fn(move |_: &AddrStream| {
@@ -316,6 +318,11 @@ where
         Ok(())
     }
 
+    /// Start securely listening for [Requests](crate::request::Request) on the
+    /// [address](std::net::SocketAddr) using the [rustls
+    /// config](tokio_rustls::rustls::ServerConfig)
+    ///
+    /// [A example]( https://github.com/lucasduartesobreira/yahf/tree/main/examples/tls )
     pub async fn listen_rustls(
         self,
         config: ServerConfig,
